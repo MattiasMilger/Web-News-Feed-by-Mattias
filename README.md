@@ -2,6 +2,14 @@
 
 A browser-based RSS news feed reader built with vanilla HTML, CSS, and JavaScript. Runs entirely client-side — no server or backend required. Designed for GitHub Pages.
 
+## Try It Out
+
+The live version is available at: **https://mattiasmilger.github.io/Web-News-Feed-by-Mattias/**
+
+### Run Locally
+
+Open `index.html` in a modern browser. No build tools or dependencies required.
+
 ## Features
 
 - **RSS Feed Reading** — Fetch and display articles from any public RSS/Atom feed.
@@ -49,14 +57,6 @@ Web News Feed by Mattias/
 6. The **search box** filters articles in real-time and highlights matching text.
 7. **Feed management** (add, edit, remove, reorder, change row) is done through the Manage Feeds dialog.
 8. **Config management** allows exporting your setup as a JSON file, importing a previous export, or resetting to defaults.
-
-## Try It Out
-
-The live version is available at: **https://mattiasmilger.github.io/Web-News-Feed-by-Mattias/**
-
-### Run Locally
-
-Open `index.html` in a modern browser. No build tools or dependencies required.
 
 ## Technical Notes
 
