@@ -50,16 +50,11 @@ Web News Feed by Mattias/
 7. **Feed management** (add, edit, remove, reorder, change row) is done through the Manage Feeds dialog.
 8. **Config management** allows exporting your setup as a JSON file, importing a previous export, or resetting to defaults.
 
-## Deployment
+## Try It Out
 
-### GitHub Pages
+The live version is available at: **https://mattiasmilger.github.io/Web-News-Feed-by-Mattias/**
 
-1. Push this folder to a GitHub repository.
-2. Go to **Settings > Pages**.
-3. Set the source to the branch and folder containing `index.html`.
-4. The site will be live at `https://<username>.github.io/<repo-name>/`.
-
-### Local
+### Run Locally
 
 Open `index.html` in a modern browser. No build tools or dependencies required.
 
