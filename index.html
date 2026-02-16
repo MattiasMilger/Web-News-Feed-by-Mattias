@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web News Feed by Mattias</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode">
+    <div class="container">
+        <h1>Web News Feed</h1>
+        <h2 class="subtitle">by Mattias</h2>
+
+        <div class="header-controls">
+            <span id="datetime-display" class="datetime-display"></span>
+            <div class="header-buttons">
+                <button id="btn-toggle-theme" class="control-button">Toggle Theme</button>
+                <button id="btn-show-info" class="control-button">Info</button>
+            </div>
+        </div>
+
+        <div id="message-area" class="message-area hidden"></div>
+
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <input type="text" id="search-input" placeholder="Search articles..." class="search-input">
+                <button id="btn-refresh" class="control-button">Refresh</button>
+            </div>
+            <div class="toolbar-right">
+                <button id="btn-manage-feeds" class="control-button accent-button">Manage Feeds</button>
+                <button id="btn-manage-config" class="control-button">Manage Config</button>
+            </div>
+        </div>
+
+        <div id="feed-buttons-area" class="feed-buttons-area"></div>
+
+        <div id="articles-area" class="articles-area">
+            <p class="placeholder-text">Select a feed to view articles.</p>
+        </div>
+
+        <div id="pagination-area" class="pagination-area hidden"></div>
+    </div>
+
+    <!-- Feed Manager Modal -->
+    <div id="feed-manager-modal" class="modal hidden">
+        <div class="modal-content modal-large">
+            <span class="close-button" data-modal="feed-manager-modal">&times;</span>
+            <h2>Manage Feeds</h2>
+            <div class="feed-list-container">
+                <select id="feed-listbox" size="8" class="feed-listbox"></select>
+            </div>
+            <div class="modal-button-row">
+                <button id="btn-feed-move-up" class="modal-action-button">Move Up</button>
+                <button id="btn-feed-move-down" class="modal-action-button">Move Down</button>
+                <button id="btn-feed-change-row" class="modal-action-button">Change Row</button>
+            </div>
+            <div class="modal-button-row">
+                <button id="btn-feed-add" class="modal-action-button accent-button">Add Feed</button>
+                <button id="btn-feed-edit" class="modal-action-button">Edit Selected</button>
+                <button id="btn-feed-remove" class="modal-action-button danger-button">Remove Selected</button>
+            </div>
+            <button class="modal-close-button" data-modal="feed-manager-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- Add/Edit Feed Modal -->
+    <div id="feed-edit-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" data-modal="feed-edit-modal">&times;</span>
+            <h2 id="feed-edit-title">Add Feed</h2>
+            <div class="form-group">
+                <label for="feed-name-input">Category Name:</label>
+                <input type="text" id="feed-name-input" placeholder="e.g., Tech News" maxlength="50">
+            </div>
+            <div class="form-group">
+                <label for="feed-url-input">RSS URL(s):</label>
+                <textarea id="feed-url-input" rows="4" placeholder="Enter RSS URL(s). Separate multiple URLs with commas for amalgamation."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="feed-row-input">Row (1-10):</label>
+                <input type="number" id="feed-row-input" value="1" min="1" max="10">
+            </div>
+            <div class="modal-button-row">
+                <button id="btn-feed-save" class="modal-action-button accent-button">Save</button>
+                <button id="btn-feed-cancel" class="modal-action-button" data-modal="feed-edit-modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Row Modal -->
+    <div id="change-row-modal" class="modal hidden">
+        <div class="modal-content modal-small">
+            <span class="close-button" data-modal="change-row-modal">&times;</span>
+            <h2>Change Row</h2>
+            <div class="form-group">
+                <label for="change-row-input">Row (1-10):</label>
+                <input type="number" id="change-row-input" value="1" min="1" max="10">
+            </div>
+            <div class="modal-button-row">
+                <button id="btn-change-row-save" class="modal-action-button accent-button">Save</button>
+                <button class="modal-action-button" data-modal="change-row-modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manage Config Modal -->
+    <div id="config-modal" class="modal hidden">
+        <div class="modal-content modal-small">
+            <span class="close-button" data-modal="config-modal">&times;</span>
+            <h2>Manage Config</h2>
+            <p class="modal-subtitle">Configuration auto-saves to your browser.</p>
+            <div class="config-button-group">
+                <button id="btn-export-config" class="modal-action-button">Export Config</button>
+                <button id="btn-import-config" class="modal-action-button">Import Config</button>
+            </div>
+            <div class="config-button-group">
+                <button id="btn-reset-config" class="modal-action-button danger-button">Reset Config</button>
+            </div>
+            <input type="file" id="config-file-input" accept=".json" class="hidden-file-input">
+            <button class="modal-close-button" data-modal="config-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- Info Modal -->
+    <div id="info-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" data-modal="info-modal">&times;</span>
+            <h2>Help &amp; Info</h2>
+            <div id="info-text">
+                <h3>About</h3>
+                <div class="info-section">
+                    <strong>Web News Feed by Mattias</strong>
+                    <p>A browser-based RSS news feed reader. Add your favorite RSS feeds, organize them into rows, and read the latest headlines — all from your browser.</p>
+                </div>
+
+                <h3>Features</h3>
+                <div class="info-section">
+                    <strong>Feed Management</strong>
+                    <ul class="info-list">
+                        <li><strong>Add feeds</strong> — provide a name, RSS URL, and row number.</li>
+                        <li><strong>Amalgamated feeds</strong> — combine multiple RSS URLs (comma-separated) into one category.</li>
+                        <li><strong>Edit &amp; Remove</strong> — modify or delete feeds from the Manage Feeds dialog.</li>
+                        <li><strong>Rows 1-10</strong> — organize feed buttons into horizontal rows.</li>
+                    </ul>
+                </div>
+                <div class="info-section">
+                    <strong>Reading</strong>
+                    <ul class="info-list">
+                        <li><strong>Pagination</strong> — articles are shown 12 per page with navigation.</li>
+                        <li><strong>Search</strong> — filter and highlight articles by keyword.</li>
+                        <li><strong>Click headlines</strong> — opens the full article in a new tab.</li>
+                        <li><strong>Source badges</strong> — amalgamated feeds show the source domain.</li>
+                    </ul>
+                </div>
+                <div class="info-section">
+                    <strong>Config Management</strong>
+                    <ul class="info-list">
+                        <li><strong>Export Config</strong> — download your feeds and settings as a JSON file.</li>
+                        <li><strong>Import Config</strong> — load a previously exported config file.</li>
+                        <li><strong>Reset Config</strong> — restore default feeds and settings.</li>
+                    </ul>
+                </div>
+                <div class="info-section">
+                    <strong>Appearance</strong>
+                    <ul class="info-list">
+                        <li><strong>Dark / Light mode</strong> — toggle theme with the button.</li>
+                        <li><strong>Responsive</strong> — works on desktop and mobile.</li>
+                    </ul>
+                </div>
+
+                <h3>Keyboard Shortcuts</h3>
+                <div class="info-section">
+                    <ul class="info-list">
+                        <li><strong>Enter</strong> in search box — triggers search.</li>
+                        <li><strong>Escape</strong> — closes any open modal.</li>
+                    </ul>
+                </div>
+
+                <h3>Technical Notes</h3>
+                <div class="info-section">
+                    <p>RSS feeds are fetched via CORS proxies since browsers block direct cross-origin requests. All configuration is stored in your browser's localStorage — nothing is sent to a server.</p>
+                </div>
+            </div>
+            <button class="modal-close-button" data-modal="info-modal">Close</button>
+        </div>
+    </div>
+
+    <footer>
+        <p><a href="https://github.com/MattiasMilger" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="rss.js"></script>
+    <script src="utils.js"></script>
+    <script src="dialogs.js"></script>
+    <script src="ui.js"></script>
+</body>
+</html>
