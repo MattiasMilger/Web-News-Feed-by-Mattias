@@ -400,10 +400,8 @@ const UI = (() => {
         // Start auto-refresh
         startAutoRefresh();
 
-        // Auto-load the first feed
-        if (state.feeds.length > 0) {
-            selectFeed(state.feeds[0].url, state.feeds[0].name);
-        }
+        // Show placeholder — user selects a feed manually
+        clearArticles();
     }
 
     document.addEventListener("DOMContentLoaded", init);
