@@ -33,21 +33,24 @@ const Dialogs = (() => {
             });
         });
 
-        // Close modals on Escape key (except feed manager)
+        // Modals that should only close via their own buttons
+        const protectedModals = ["feed-manager-modal", "feed-edit-modal", "change-row-modal"];
+
+        // Close modals on Escape key (except protected modals)
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
                 document.querySelectorAll(".modal:not(.hidden)").forEach(modal => {
-                    if (modal.id !== "feed-manager-modal") {
+                    if (!protectedModals.includes(modal.id)) {
                         modal.classList.add("hidden");
                     }
                 });
             }
         });
 
-        // Close modal when clicking outside the modal content (except feed manager)
+        // Close modal when clicking outside the modal content (except protected modals)
         document.querySelectorAll(".modal").forEach(modal => {
             modal.addEventListener("click", e => {
-                if (e.target === modal && modal.id !== "feed-manager-modal") {
+                if (e.target === modal && !protectedModals.includes(modal.id)) {
                     modal.classList.add("hidden");
                 }
             });
@@ -222,14 +225,9 @@ const Dialogs = (() => {
             const oldUrl = state.feeds[editingFeedIndex].url;
             state.feeds[editingFeedIndex] = { name, url, row: rowNum };
 
-            if (oldUrl !== url && state.allArticles[oldUrl]) {
-                state.allArticles[url] = state.allArticles[oldUrl];
+            if (oldUrl !== url) {
+                // Discard cached articles so the next fetch reflects the new URL(s)
                 delete state.allArticles[oldUrl];
-            }
-
-            if (state.activeFeedUrl === oldUrl && oldUrl !== url) {
-                state.activeFeedUrl = null;
-                state.activeFeedName = null;
             }
 
             Utils.showMessage(`Feed '${name}' updated.`, "success");
@@ -246,6 +244,9 @@ const Dialogs = (() => {
         closeModal("feed-edit-modal");
         refreshFeedListbox();
         UI.renderFeedButtons();
+
+        // Auto-select the saved feed so it fetches fresh data
+        UI.selectFeed(url, name);
     }
 
     /**
