@@ -5,41 +5,6 @@
  */
 
 const Utils = (() => {
-    let datetimeTimerId = null;
-
-    /**
-     * Start updating the datetime display every second.
-     */
-    function startDatetimeUpdater() {
-        const el = document.getElementById("datetime-display");
-        if (!el) return;
-
-        function update() {
-            const now = new Date();
-            const options = {
-                weekday: "long",
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-                hour12: false
-            };
-            el.textContent = now.toLocaleDateString("en-US", options);
-        }
-
-        update();
-        datetimeTimerId = setInterval(update, 1000);
-    }
-
-    function stopDatetimeUpdater() {
-        if (datetimeTimerId) {
-            clearInterval(datetimeTimerId);
-            datetimeTimerId = null;
-        }
-    }
-
     /**
      * Show a message in the message area.
      * @param {string} text - message text
@@ -131,8 +96,6 @@ const Utils = (() => {
     }
 
     return {
-        startDatetimeUpdater,
-        stopDatetimeUpdater,
         showMessage,
         hideMessage,
         highlightText,

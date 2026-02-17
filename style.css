@@ -114,13 +114,6 @@ h1 {
     flex-wrap: wrap;
 }
 
-.datetime-display {
-    font-weight: bold;
-    font-size: 0.95em;
-    color: var(--fg-color);
-    white-space: nowrap;
-}
-
 .header-buttons {
     display: flex;
     gap: 10px;

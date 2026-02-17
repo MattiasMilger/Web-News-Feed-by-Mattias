@@ -358,8 +358,7 @@ const UI = (() => {
         const state = Config.getState();
 
         Utils.applyTheme(state.currentTheme);
-        Utils.startDatetimeUpdater();
-        Dialogs.initCloseButtons();
+Dialogs.initCloseButtons();
         renderFeedButtons();
 
         // Theme toggle
@@ -409,8 +408,8 @@ const UI = (() => {
         // Start auto-refresh
         startAutoRefresh();
 
-        // Auto-select if exactly one feed, otherwise show placeholder
-        if (state.feeds.length === 1) {
+        // Auto-select the first feed, or show placeholder if none exist
+        if (state.feeds.length > 0) {
             selectFeed(state.feeds[0].url, state.feeds[0].name);
         } else {
             clearArticles();
