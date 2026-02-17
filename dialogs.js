@@ -33,19 +33,21 @@ const Dialogs = (() => {
             });
         });
 
-        // Close modals on Escape key
+        // Close modals on Escape key (except feed manager)
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
                 document.querySelectorAll(".modal:not(.hidden)").forEach(modal => {
-                    modal.classList.add("hidden");
+                    if (modal.id !== "feed-manager-modal") {
+                        modal.classList.add("hidden");
+                    }
                 });
             }
         });
 
-        // Close modal when clicking outside the modal content
+        // Close modal when clicking outside the modal content (except feed manager)
         document.querySelectorAll(".modal").forEach(modal => {
             modal.addEventListener("click", e => {
-                if (e.target === modal) {
+                if (e.target === modal && modal.id !== "feed-manager-modal") {
                     modal.classList.add("hidden");
                 }
             });

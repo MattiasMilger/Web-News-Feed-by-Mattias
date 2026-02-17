@@ -15,6 +15,7 @@ const Config = (() => {
     const ARTICLES_PER_PAGE = 12;
     const FEED_FETCH_TIMEOUT = 15000; // 15 seconds
     const REFRESH_INTERVAL_MS = 300000; // 5 minutes
+    const CACHE_TTL_MS = 300000; // 5 minutes — reuse cached articles within this window
 
     // Default feeds
     const DEFAULT_FEEDS = [
@@ -162,7 +163,7 @@ const Config = (() => {
     return {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE,
-        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS,
+        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS,
         DEFAULT_FEEDS,
 
         load, save, getState,

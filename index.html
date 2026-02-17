@@ -179,6 +179,7 @@
                 <h3>Technical Notes</h3>
                 <div class="info-section">
                     <p>RSS feeds are fetched via CORS proxies since browsers block direct cross-origin requests. All configuration is stored in your browser's localStorage — nothing is sent to a server.</p>
+                    <p>Fetched articles are cached for 5 minutes — switching between feeds reuses cached data to reduce proxy requests. Manual refresh and auto-refresh always fetch fresh data.</p>
                 </div>
             </div>
             <button class="modal-close-button" data-modal="info-modal">Close</button>

@@ -6,6 +6,7 @@
 
 const UI = (() => {
     let refreshTimerId = null;
+    const fetchTimestamps = {}; // feedUrl -> Date.now() of last fetch
 
     // ========================
     // Feed Buttons
@@ -70,6 +71,13 @@ const UI = (() => {
             btn.classList.toggle("active", btn.title === feedUrl);
         });
 
+        // Use cached articles if fetched within the TTL window
+        const lastFetch = fetchTimestamps[feedUrl];
+        if (lastFetch && (Date.now() - lastFetch < Config.CACHE_TTL_MS) && state.allArticles[feedUrl]) {
+            displayPage(feedName, feedUrl, 1);
+            return;
+        }
+
         await fetchAndDisplayNews(feedUrl, feedName);
     }
 
@@ -92,6 +100,7 @@ const UI = (() => {
             const state = Config.getState();
             state.allArticles[feedUrl] = entries;
             state.currentPage = 1;
+            fetchTimestamps[feedUrl] = Date.now();
 
             displayPage(categoryName, feedUrl, 1);
         } catch (err) {
@@ -400,8 +409,12 @@ const UI = (() => {
         // Start auto-refresh
         startAutoRefresh();
 
-        // Show placeholder — user selects a feed manually
-        clearArticles();
+        // Auto-select if exactly one feed, otherwise show placeholder
+        if (state.feeds.length === 1) {
+            selectFeed(state.feeds[0].url, state.feeds[0].name);
+        } else {
+            clearArticles();
+        }
     }
 
     document.addEventListener("DOMContentLoaded", init);

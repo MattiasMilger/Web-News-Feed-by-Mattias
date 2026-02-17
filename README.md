@@ -62,6 +62,7 @@ Web News Feed by Mattias/
 
 - **No external dependencies** — pure vanilla HTML, CSS, and JavaScript.
 - **CORS Proxies** — Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`).
+- **Feed Caching** — Fetched articles are cached for 5 minutes to reduce CORS proxy requests. Switching between feeds uses cached data when available. Manual refresh and auto-refresh always fetch fresh data.
 - **localStorage** — All configuration persists in the browser. Clearing browser data will reset feeds to defaults.
 
 ## Browser Support
