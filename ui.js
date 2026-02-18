@@ -395,9 +395,12 @@ const UI = (() => {
         // Start auto-refresh
         startAutoRefresh();
 
-        // Auto-load the first feed
+        // Auto-load the 1st feed in the 1st row (sorted by row, then order)
         if (state.feeds.length > 0) {
-            selectFeed(state.feeds[0].url, state.feeds[0].name);
+            const firstFeed = state.feeds
+                .slice()
+                .sort((a, b) => (a.row || 1) - (b.row || 1) || (a.order || 1) - (b.order || 1))[0];
+            selectFeed(firstFeed.url, firstFeed.name);
         }
     }
 
