@@ -11,17 +11,34 @@ const Config = (() => {
     const MAX_ROWS = 10;
     const MIN_ROW = 1;
     const DEFAULT_ROW = 1;
+    const MAX_ORDER = 10;
+    const DEFAULT_ORDER = 1;
     const MAX_ENTRIES_PER_FEED = 100;
     const ARTICLES_PER_PAGE = 12;
+    const MAX_PAGES = 10;
     const FEED_FETCH_TIMEOUT = 15000; // 15 seconds
     const REFRESH_INTERVAL_MS = 300000; // 5 minutes
-    const CACHE_TTL_MS = 300000; // 5 minutes — reuse cached articles within this window
 
-    // Default feeds
+    // Default feeds (from standard-config.json)
     const DEFAULT_FEEDS = [
-        { name: "Technology", url: "https://techcrunch.com/feed/", row: 1 },
-        { name: "Finance", url: "https://www.valuewalk.com/feed", row: 1 },
-        { name: "World", url: "http://feeds.bbci.co.uk/news/world/rss.xml", row: 1 }
+        {
+            name: "Cyberthreats",
+            url: "https://www.helpnetsecurity.com/feed/, https://www.cshub.com/rss/categories/malware, https://www.schneier.com/feed/atom/, https://feeds.feedburner.com/TheHackersNews?format=xml, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml",
+            row: 1,
+            order: 1
+        },
+        {
+            name: "AI",
+            url: "https://www.helpnetsecurity.com/tag/artificial-intelligence/feed/, https://venturebeat.com/category/ai/feed/",
+            row: 1,
+            order: 2
+        },
+        {
+            name: "IT General",
+            url: "https://www.computerweekly.com/rss/RSS-Feed.xml",
+            row: 1,
+            order: 3
+        }
     ];
 
     // Runtime state
@@ -36,16 +53,16 @@ const Config = (() => {
     };
 
     /**
-     * Normalize a feed entry to { name, url, row } format.
+     * Normalize a feed entry to { name, url, row, order } format.
      */
     function normalizeFeed(item) {
         if (Array.isArray(item)) {
-            return { name: item[0], url: item[1], row: item[2] !== undefined ? item[2] : DEFAULT_ROW };
+            return { name: item[0], url: item[1], row: item[2] !== undefined ? item[2] : DEFAULT_ROW, order: item[3] !== undefined ? item[3] : null };
         }
         if (typeof item === "object" && item.name) {
-            return { name: item.name, url: item.url, row: item.row || DEFAULT_ROW };
+            return { name: item.name, url: item.url, row: item.row || DEFAULT_ROW, order: item.order || null };
         }
-        return { name: "Unknown", url: "", row: DEFAULT_ROW };
+        return { name: "Unknown", url: "", row: DEFAULT_ROW, order: null };
     }
 
     /**
@@ -80,6 +97,16 @@ const Config = (() => {
             state.feeds = DEFAULT_FEEDS.map(f => ({ ...f }));
         }
 
+        // Assign orders to feeds that don't have one (migration from old format)
+        const rowCounters = {};
+        state.feeds.forEach(feed => {
+            if (feed.order === null || feed.order === undefined) {
+                const row = feed.row;
+                rowCounters[row] = (rowCounters[row] || 0) + 1;
+                feed.order = rowCounters[row];
+            }
+        });
+
         save();
     }
 
@@ -88,7 +115,7 @@ const Config = (() => {
      */
     function save() {
         const data = {
-            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row })),
+            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
             theme: state.currentTheme
         };
         try {
@@ -118,7 +145,7 @@ const Config = (() => {
      */
     function exportConfig() {
         return {
-            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row })),
+            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
             theme: state.currentTheme
         };
     }
@@ -161,9 +188,9 @@ const Config = (() => {
     }
 
     return {
-        MAX_ROWS, MIN_ROW, DEFAULT_ROW,
-        MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE,
-        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS,
+        MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
+        MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
+        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS,
         DEFAULT_FEEDS,
 
         load, save, getState,

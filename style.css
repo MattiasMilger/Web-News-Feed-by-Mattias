@@ -114,9 +114,22 @@ h1 {
     flex-wrap: wrap;
 }
 
+.datetime-display {
+    font-weight: bold;
+    font-size: 0.95em;
+    color: var(--fg-color);
+    white-space: nowrap;
+}
+
 .header-buttons {
     display: flex;
     gap: 10px;
+}
+
+.header-search {
+    display: flex;
+    gap: 10px;
+    align-items: center;
 }
 
 .control-button {
@@ -158,7 +171,7 @@ h1 {
 /* --- Toolbar --- */
 .toolbar {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
     gap: 10px;
     margin-bottom: 15px;
@@ -385,14 +398,18 @@ mark.search-highlight {
 
 /* --- Message Area --- */
 .message-area {
-    margin-bottom: 15px;
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 1000px;
+    z-index: 1100;
     border-radius: 4px;
     font-weight: bold;
     text-align: left;
-    min-height: 42px;
     padding: 10px 15px;
     line-height: 1.6;
-    display: block;
     border: 1px solid transparent;
     white-space: pre-wrap;
     word-wrap: break-word;
@@ -405,9 +422,7 @@ mark.search-highlight {
 .message-area.hidden {
     opacity: 0;
     visibility: hidden;
-    min-height: 0;
-    padding: 0;
-    margin: 0;
+    pointer-events: none;
 }
 
 .message-area.error {
@@ -737,18 +752,13 @@ footer a:hover {
         justify-content: center;
     }
 
-    .toolbar {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .toolbar-left,
-    .toolbar-right {
+    .header-search {
         justify-content: center;
+        width: 100%;
     }
 
     .search-input {
-        width: 100%;
+        flex: 1;
     }
 
     .config-button-group {

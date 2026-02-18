@@ -6,7 +6,6 @@
 
 const UI = (() => {
     let refreshTimerId = null;
-    const fetchTimestamps = {}; // feedUrl -> Date.now() of last fetch
 
     // ========================
     // Feed Buttons
@@ -39,6 +38,7 @@ const UI = (() => {
             const rowDiv = document.createElement("div");
             rowDiv.className = "feed-row";
 
+            feedsByRow[rowNum].sort((a, b) => (a.order || 1) - (b.order || 1));
             feedsByRow[rowNum].forEach(feed => {
                 const btn = document.createElement("button");
                 btn.className = "feed-button";
@@ -71,13 +71,6 @@ const UI = (() => {
             btn.classList.toggle("active", btn.title === feedUrl);
         });
 
-        // Use cached articles if fetched within the TTL window
-        const lastFetch = fetchTimestamps[feedUrl];
-        if (lastFetch && (Date.now() - lastFetch < Config.CACHE_TTL_MS) && state.allArticles[feedUrl]) {
-            displayPage(feedName, feedUrl, 1);
-            return;
-        }
-
         await fetchAndDisplayNews(feedUrl, feedName);
     }
 
@@ -100,7 +93,6 @@ const UI = (() => {
             const state = Config.getState();
             state.allArticles[feedUrl] = entries;
             state.currentPage = 1;
-            fetchTimestamps[feedUrl] = Date.now();
 
             displayPage(categoryName, feedUrl, 1);
         } catch (err) {
@@ -117,9 +109,10 @@ const UI = (() => {
         const state = Config.getState();
         const entries = state.allArticles[feedUrl] || [];
         const totalArticles = entries.length;
-        const totalPages = totalArticles > 0
-            ? Math.ceil(totalArticles / Config.ARTICLES_PER_PAGE)
-            : 0;
+        const totalPages = Math.min(
+            totalArticles > 0 ? Math.ceil(totalArticles / Config.ARTICLES_PER_PAGE) : 0,
+            Config.MAX_PAGES
+        );
 
         if (totalPages > 0) {
             pageNumber = Math.max(1, Math.min(pageNumber, totalPages));
@@ -142,9 +135,10 @@ const UI = (() => {
                 a.summary.toLowerCase().includes(term)
             );
             displayTotal = allFiltered.length;
-            displayTotalPages = displayTotal > 0
-                ? Math.ceil(displayTotal / Config.ARTICLES_PER_PAGE)
-                : 0;
+            displayTotalPages = Math.min(
+                displayTotal > 0 ? Math.ceil(displayTotal / Config.ARTICLES_PER_PAGE) : 0,
+                Config.MAX_PAGES
+            );
             pageNumber = Math.max(1, Math.min(pageNumber, displayTotalPages || 1));
             state.currentPage = pageNumber;
 
@@ -159,7 +153,6 @@ const UI = (() => {
             displayEntries = entries.slice(startIdx, endIdx);
         }
 
-        const isAmalgamated = RSS.parseFeedUrls(feedUrl).length > 1;
         const articlesArea = document.getElementById("articles-area");
         articlesArea.innerHTML = "";
 
@@ -201,7 +194,7 @@ const UI = (() => {
             headlineLink.innerHTML = Utils.highlightText(article.title, searchTerm);
             headlineRow.appendChild(headlineLink);
 
-            if (isAmalgamated && article.sourceDomain) {
+            if (article.sourceDomain) {
                 const badge = document.createElement("span");
                 badge.className = "article-source-badge";
                 badge.textContent = article.sourceDomain;
@@ -358,7 +351,7 @@ const UI = (() => {
         const state = Config.getState();
 
         Utils.applyTheme(state.currentTheme);
-Dialogs.initCloseButtons();
+        Dialogs.initCloseButtons();
         renderFeedButtons();
 
         // Theme toggle
@@ -382,22 +375,16 @@ Dialogs.initCloseButtons();
         // Manage Feeds
         document.getElementById("btn-manage-feeds").addEventListener("click", Dialogs.openFeedManager);
 
-        // Manage Config
+        // Import/Export config modal
         document.getElementById("btn-manage-config").addEventListener("click", Dialogs.openConfigManager);
 
         // Feed Manager buttons
-        document.getElementById("btn-feed-move-up").addEventListener("click", () => Dialogs.moveFeed(-1));
-        document.getElementById("btn-feed-move-down").addEventListener("click", () => Dialogs.moveFeed(1));
-        document.getElementById("btn-feed-change-row").addEventListener("click", Dialogs.openChangeRow);
         document.getElementById("btn-feed-add").addEventListener("click", Dialogs.openAddFeed);
         document.getElementById("btn-feed-edit").addEventListener("click", Dialogs.openEditFeed);
         document.getElementById("btn-feed-remove").addEventListener("click", Dialogs.removeFeed);
 
         // Feed Add/Edit save
         document.getElementById("btn-feed-save").addEventListener("click", Dialogs.saveFeed);
-
-        // Change Row save
-        document.getElementById("btn-change-row-save").addEventListener("click", Dialogs.saveChangeRow);
 
         // Config management
         document.getElementById("btn-export-config").addEventListener("click", Dialogs.exportConfig);
@@ -408,11 +395,9 @@ Dialogs.initCloseButtons();
         // Start auto-refresh
         startAutoRefresh();
 
-        // Auto-select the first feed, or show placeholder if none exist
+        // Auto-load the first feed
         if (state.feeds.length > 0) {
             selectFeed(state.feeds[0].url, state.feeds[0].name);
-        } else {
-            clearArticles();
         }
     }
 

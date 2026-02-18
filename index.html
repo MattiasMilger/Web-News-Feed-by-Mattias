@@ -7,27 +7,25 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-mode">
+    <div id="message-area" class="message-area hidden"></div>
+
     <div class="container">
         <h1>Web News Feed</h1>
+
         <h2 class="subtitle">by Mattias</h2>
 
         <div class="header-controls">
             <div class="header-buttons">
+                <button id="btn-manage-feeds" class="control-button accent-button">Manage Feeds</button>
                 <button id="btn-toggle-theme" class="control-button">Toggle Theme</button>
-                <button id="btn-show-info" class="control-button">Info</button>
             </div>
-        </div>
-
-        <div id="message-area" class="message-area hidden"></div>
-
-        <div class="toolbar">
-            <div class="toolbar-left">
+            <div class="header-search">
                 <input type="text" id="search-input" placeholder="Search articles..." class="search-input">
                 <button id="btn-refresh" class="control-button">Refresh</button>
             </div>
-            <div class="toolbar-right">
-                <button id="btn-manage-feeds" class="control-button accent-button">Manage Feeds</button>
-                <button id="btn-manage-config" class="control-button">Manage Config</button>
+            <div class="header-buttons">
+                <button id="btn-show-info" class="control-button">Info</button>
+                <button id="btn-manage-config" class="control-button">Import/Export</button>
             </div>
         </div>
 
@@ -47,11 +45,6 @@
             <h2>Manage Feeds</h2>
             <div class="feed-list-container">
                 <select id="feed-listbox" size="8" class="feed-listbox"></select>
-            </div>
-            <div class="modal-button-row">
-                <button id="btn-feed-move-up" class="modal-action-button">Move Up</button>
-                <button id="btn-feed-move-down" class="modal-action-button">Move Down</button>
-                <button id="btn-feed-change-row" class="modal-action-button">Change Row</button>
             </div>
             <div class="modal-button-row">
                 <button id="btn-feed-add" class="modal-action-button accent-button">Add Feed</button>
@@ -79,25 +72,13 @@
                 <label for="feed-row-input">Row (1-10):</label>
                 <input type="number" id="feed-row-input" value="1" min="1" max="10">
             </div>
+            <div class="form-group">
+                <label for="feed-order-input">Order (1-10):</label>
+                <input type="number" id="feed-order-input" value="1" min="1" max="10">
+            </div>
             <div class="modal-button-row">
                 <button id="btn-feed-save" class="modal-action-button accent-button">Save</button>
                 <button id="btn-feed-cancel" class="modal-action-button" data-modal="feed-edit-modal">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Change Row Modal -->
-    <div id="change-row-modal" class="modal hidden">
-        <div class="modal-content modal-small">
-            <span class="close-button" data-modal="change-row-modal">&times;</span>
-            <h2>Change Row</h2>
-            <div class="form-group">
-                <label for="change-row-input">Row (1-10):</label>
-                <input type="number" id="change-row-input" value="1" min="1" max="10">
-            </div>
-            <div class="modal-button-row">
-                <button id="btn-change-row-save" class="modal-action-button accent-button">Save</button>
-                <button class="modal-action-button" data-modal="change-row-modal">Cancel</button>
             </div>
         </div>
     </div>
@@ -106,7 +87,7 @@
     <div id="config-modal" class="modal hidden">
         <div class="modal-content modal-small">
             <span class="close-button" data-modal="config-modal">&times;</span>
-            <h2>Manage Config</h2>
+            <h2>Import/Export</h2>
             <p class="modal-subtitle">Configuration auto-saves to your browser.</p>
             <div class="config-button-group">
                 <button id="btn-export-config" class="modal-action-button">Export Config</button>
@@ -136,23 +117,26 @@
                 <div class="info-section">
                     <strong>Feed Management</strong>
                     <ul class="info-list">
-                        <li><strong>Add feeds</strong> — provide a name, RSS URL, and row number.</li>
+                        <li><strong>Add feeds</strong> — provide a name, RSS URL, row (1-10), and order (1-10).</li>
                         <li><strong>Amalgamated feeds</strong> — combine multiple RSS URLs (comma-separated) into one category.</li>
                         <li><strong>Edit &amp; Remove</strong> — modify or delete feeds from the Manage Feeds dialog.</li>
                         <li><strong>Rows 1-10</strong> — organize feed buttons into horizontal rows.</li>
+                        <li><strong>Order 1-10</strong> — controls the position of a feed within its row. Max 10 feeds per row.</li>
+                        <li><strong>Swap on conflict</strong> — editing a feed into an occupied row/order slot swaps the two feeds.</li>
                     </ul>
                 </div>
                 <div class="info-section">
                     <strong>Reading</strong>
                     <ul class="info-list">
-                        <li><strong>Pagination</strong> — articles are shown 12 per page with navigation.</li>
-                        <li><strong>Search</strong> — filter and highlight articles by keyword.</li>
+                        <li><strong>Pagination</strong> — articles are shown 12 per page, up to 10 pages per feed.</li>
+                        <li><strong>Auto-refresh</strong> — the active feed refreshes automatically every 5 minutes.</li>
+                        <li><strong>Search</strong> — filter and highlight articles by keyword in real time.</li>
                         <li><strong>Click headlines</strong> — opens the full article in a new tab.</li>
-                        <li><strong>Source badges</strong> — amalgamated feeds show the source domain.</li>
+                        <li><strong>Source badges</strong> — every article shows its source domain.</li>
                     </ul>
                 </div>
                 <div class="info-section">
-                    <strong>Config Management</strong>
+                    <strong>Import/Export</strong>
                     <ul class="info-list">
                         <li><strong>Export Config</strong> — download your feeds and settings as a JSON file.</li>
                         <li><strong>Import Config</strong> — load a previously exported config file.</li>
@@ -178,7 +162,6 @@
                 <h3>Technical Notes</h3>
                 <div class="info-section">
                     <p>RSS feeds are fetched via CORS proxies since browsers block direct cross-origin requests. All configuration is stored in your browser's localStorage — nothing is sent to a server.</p>
-                    <p>Fetched articles are cached for 5 minutes — switching between feeds reuses cached data to reduce proxy requests. Manual refresh and auto-refresh always fetch fresh data.</p>
                 </div>
             </div>
             <button class="modal-close-button" data-modal="info-modal">Close</button>
@@ -186,7 +169,7 @@
     </div>
 
     <footer>
-        <p><a href="https://github.com/MattiasMilger" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+        <p><a href="https://github.com/MattiasMilger/Web-News-Feed-by-Mattias" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
     </footer>
 
     <script src="config.js"></script>

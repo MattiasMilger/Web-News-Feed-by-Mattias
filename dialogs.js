@@ -33,24 +33,21 @@ const Dialogs = (() => {
             });
         });
 
-        // Modals that should only close via their own buttons
-        const protectedModals = ["feed-manager-modal", "feed-edit-modal", "change-row-modal"];
-
-        // Close modals on Escape key (except protected modals)
+        // Close modals on Escape key
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
                 document.querySelectorAll(".modal:not(.hidden)").forEach(modal => {
-                    if (!protectedModals.includes(modal.id)) {
-                        modal.classList.add("hidden");
-                    }
+                    modal.classList.add("hidden");
                 });
             }
         });
 
-        // Close modal when clicking outside the modal content (except protected modals)
+        // Close modal when clicking outside the modal content (except feed modals)
+        const noBackgroundClose = ["feed-manager-modal", "feed-edit-modal"];
         document.querySelectorAll(".modal").forEach(modal => {
+            if (noBackgroundClose.includes(modal.id)) return;
             modal.addEventListener("click", e => {
-                if (e.target === modal && !protectedModals.includes(modal.id)) {
+                if (e.target === modal) {
                     modal.classList.add("hidden");
                 }
             });
@@ -77,79 +74,23 @@ const Dialogs = (() => {
         const state = Config.getState();
         listbox.innerHTML = "";
 
-        state.feeds.forEach((feed, i) => {
+        // Display sorted by row then order, but keep original index as value
+        const sortedIndices = state.feeds
+            .map((feed, i) => ({ feed, i }))
+            .sort((a, b) => a.feed.row !== b.feed.row
+                ? a.feed.row - b.feed.row
+                : (a.feed.order || 1) - (b.feed.order || 1))
+            .map(item => item.i);
+
+        sortedIndices.forEach(i => {
+            const feed = state.feeds[i];
             const urlCount = RSS.parseFeedUrls(feed.url).length;
             const amalgamIndicator = urlCount > 1 ? ` [${urlCount} sources]` : "";
             const opt = document.createElement("option");
             opt.value = i;
-            opt.textContent = `${feed.name}${amalgamIndicator} [Row ${feed.row}]: ${feed.url}`;
+            opt.textContent = `${feed.name}${amalgamIndicator} [Row ${feed.row}, Order ${feed.order}]: ${feed.url}`;
             listbox.appendChild(opt);
         });
-    }
-
-    /**
-     * Move the selected feed up or down.
-     */
-    function moveFeed(direction) {
-        const listbox = document.getElementById("feed-listbox");
-        const idx = listbox.selectedIndex;
-        if (idx < 0) {
-            Utils.showMessage("Please select a feed to move.", "warning");
-            return;
-        }
-
-        const state = Config.getState();
-        const newIdx = idx + direction;
-        if (newIdx < 0 || newIdx >= state.feeds.length) return;
-
-        const temp = state.feeds[idx];
-        state.feeds[idx] = state.feeds[newIdx];
-        state.feeds[newIdx] = temp;
-
-        Config.save();
-        refreshFeedListbox();
-        listbox.selectedIndex = newIdx;
-        UI.renderFeedButtons();
-    }
-
-    /**
-     * Open the change-row modal for the selected feed.
-     */
-    function openChangeRow() {
-        const listbox = document.getElementById("feed-listbox");
-        const idx = listbox.selectedIndex;
-        if (idx < 0) {
-            Utils.showMessage("Please select a feed to change row.", "warning");
-            return;
-        }
-
-        const state = Config.getState();
-        document.getElementById("change-row-input").value = state.feeds[idx].row;
-        openModal("change-row-modal");
-    }
-
-    /**
-     * Save the new row from the change-row modal.
-     */
-    function saveChangeRow() {
-        const listbox = document.getElementById("feed-listbox");
-        const idx = listbox.selectedIndex;
-        if (idx < 0) return;
-
-        const newRow = parseInt(document.getElementById("change-row-input").value, 10);
-        if (isNaN(newRow) || newRow < 1 || newRow > 10) {
-            Utils.showMessage("Row must be between 1 and 10.", "error");
-            return;
-        }
-
-        const state = Config.getState();
-        state.feeds[idx].row = newRow;
-
-        Config.save();
-        closeModal("change-row-modal");
-        refreshFeedListbox();
-        listbox.selectedIndex = idx;
-        UI.renderFeedButtons();
     }
 
     /**
@@ -157,10 +98,15 @@ const Dialogs = (() => {
      */
     function openAddFeed() {
         editingFeedIndex = null;
+        const state = Config.getState();
+        const feedsInRow1 = state.feeds.filter(f => f.row === 1).length;
+        const defaultOrder = Math.min(feedsInRow1 + 1, Config.MAX_ORDER);
+
         document.getElementById("feed-edit-title").textContent = "Add Feed";
         document.getElementById("feed-name-input").value = "";
         document.getElementById("feed-url-input").value = "";
         document.getElementById("feed-row-input").value = "1";
+        document.getElementById("feed-order-input").value = defaultOrder;
         openModal("feed-edit-modal");
         document.getElementById("feed-name-input").focus();
     }
@@ -170,11 +116,11 @@ const Dialogs = (() => {
      */
     function openEditFeed() {
         const listbox = document.getElementById("feed-listbox");
-        const idx = listbox.selectedIndex;
-        if (idx < 0) {
+        if (listbox.selectedIndex < 0) {
             Utils.showMessage("Please select a feed to edit.", "warning");
             return;
         }
+        const idx = parseInt(listbox.options[listbox.selectedIndex].value, 10);
 
         const state = Config.getState();
         const feed = state.feeds[idx];
@@ -184,6 +130,7 @@ const Dialogs = (() => {
         document.getElementById("feed-name-input").value = feed.name;
         document.getElementById("feed-url-input").value = feed.url;
         document.getElementById("feed-row-input").value = feed.row;
+        document.getElementById("feed-order-input").value = feed.order || Config.DEFAULT_ORDER;
         openModal("feed-edit-modal");
         document.getElementById("feed-name-input").focus();
     }
@@ -195,6 +142,7 @@ const Dialogs = (() => {
         const name = document.getElementById("feed-name-input").value.trim();
         const url = document.getElementById("feed-url-input").value.trim();
         const row = parseInt(document.getElementById("feed-row-input").value, 10);
+        const order = parseInt(document.getElementById("feed-order-input").value, 10);
 
         if (!name) {
             Utils.showMessage("Please enter a category name.", "error");
@@ -211,7 +159,8 @@ const Dialogs = (() => {
             return;
         }
 
-        const rowNum = isNaN(row) || row < 1 || row > 10 ? 1 : row;
+        const rowNum = isNaN(row) || row < 1 || row > Config.MAX_ROWS ? 1 : row;
+        const orderNum = isNaN(order) || order < 1 || order > Config.MAX_ORDER ? Config.DEFAULT_ORDER : order;
         const state = Config.getState();
 
         // Check for duplicate names (excluding self when editing)
@@ -223,16 +172,40 @@ const Dialogs = (() => {
 
         if (editingFeedIndex !== null) {
             const oldUrl = state.feeds[editingFeedIndex].url;
-            state.feeds[editingFeedIndex] = { name, url, row: rowNum };
+            const oldRow = state.feeds[editingFeedIndex].row;
+            const oldOrder = state.feeds[editingFeedIndex].order;
 
-            if (oldUrl !== url) {
-                // Discard cached articles so the next fetch reflects the new URL(s)
+            // If another feed occupies the target (row, order) slot, swap them
+            const swapIdx = state.feeds.findIndex((f, i) =>
+                i !== editingFeedIndex && f.row === rowNum && f.order === orderNum
+            );
+            if (swapIdx >= 0) {
+                state.feeds[swapIdx].row = oldRow;
+                state.feeds[swapIdx].order = oldOrder;
+            } else {
+                // No swap: check max feeds per row
+                const feedsInTargetRow = state.feeds.filter((f, i) => f.row === rowNum && i !== editingFeedIndex).length;
+                if (feedsInTargetRow >= Config.MAX_ORDER) {
+                    Utils.showMessage(`Row ${rowNum} already has ${Config.MAX_ORDER} feeds (maximum).`, "error");
+                    return;
+                }
+            }
+
+            state.feeds[editingFeedIndex] = { name, url, row: rowNum, order: orderNum };
+
+            if (oldUrl !== url && state.allArticles[oldUrl]) {
+                state.allArticles[url] = state.allArticles[oldUrl];
                 delete state.allArticles[oldUrl];
+            }
+
+            if (state.activeFeedUrl === oldUrl && oldUrl !== url) {
+                state.activeFeedUrl = null;
+                state.activeFeedName = null;
             }
 
             Utils.showMessage(`Feed '${name}' updated.`, "success");
         } else {
-            state.feeds.push({ name, url, row: rowNum });
+            state.feeds.push({ name, url, row: rowNum, order: orderNum });
             const urlCount = RSS.parseFeedUrls(url).length;
             const msg = urlCount > 1
                 ? `Feed '${name}' added (${urlCount} sources amalgamated).`
@@ -244,9 +217,6 @@ const Dialogs = (() => {
         closeModal("feed-edit-modal");
         refreshFeedListbox();
         UI.renderFeedButtons();
-
-        // Auto-select the saved feed so it fetches fresh data
-        UI.selectFeed(url, name);
     }
 
     /**
@@ -254,11 +224,11 @@ const Dialogs = (() => {
      */
     function removeFeed() {
         const listbox = document.getElementById("feed-listbox");
-        const idx = listbox.selectedIndex;
-        if (idx < 0) {
+        if (listbox.selectedIndex < 0) {
             Utils.showMessage("Please select a feed to remove.", "warning");
             return;
         }
+        const idx = parseInt(listbox.options[listbox.selectedIndex].value, 10);
 
         const state = Config.getState();
         const feedName = state.feeds[idx].name;
@@ -385,9 +355,6 @@ const Dialogs = (() => {
         // Feed manager
         openFeedManager,
         refreshFeedListbox,
-        moveFeed,
-        openChangeRow,
-        saveChangeRow,
         openAddFeed,
         openEditFeed,
         saveFeed,
