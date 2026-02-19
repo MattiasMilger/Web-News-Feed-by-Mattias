@@ -193,14 +193,13 @@ const Dialogs = (() => {
 
             state.feeds[editingFeedIndex] = { name, url, row: rowNum, order: orderNum };
 
-            if (oldUrl !== url && state.allArticles[oldUrl]) {
-                state.allArticles[url] = state.allArticles[oldUrl];
+            if (oldUrl !== url) {
                 delete state.allArticles[oldUrl];
-            }
-
-            if (state.activeFeedUrl === oldUrl && oldUrl !== url) {
-                state.activeFeedUrl = null;
-                state.activeFeedName = null;
+                delete state.allArticles[url];
+                if (state.activeFeedUrl === oldUrl) {
+                    state.activeFeedUrl = url;
+                    state.activeFeedName = name;
+                }
             }
 
             Utils.showMessage(`Feed '${name}' updated.`, "success");
@@ -217,6 +216,13 @@ const Dialogs = (() => {
         closeModal("feed-edit-modal");
         refreshFeedListbox();
         UI.renderFeedButtons();
+
+        // Auto-select the added feed, or re-select the edited feed if URL changed
+        if (editingFeedIndex === null) {
+            UI.selectFeed(url, name);
+        } else if (state.activeFeedUrl === url) {
+            UI.selectFeed(url, name);
+        }
     }
 
     /**
@@ -231,18 +237,30 @@ const Dialogs = (() => {
         const idx = parseInt(listbox.options[listbox.selectedIndex].value, 10);
 
         const state = Config.getState();
-        const feedName = state.feeds[idx].name;
+        const removedFeed = state.feeds[idx];
+        const feedName = removedFeed.name;
+        const wasActive = state.activeFeedUrl === removedFeed.url;
 
         if (!confirm(`Remove '${feedName}'?`)) return;
 
+        delete state.allArticles[removedFeed.url];
         state.feeds.splice(idx, 1);
         Config.save();
 
         refreshFeedListbox();
         UI.renderFeedButtons();
 
-        if (state.feeds.length === 0) {
-            UI.clearArticles();
+        if (wasActive) {
+            if (state.feeds.length > 0) {
+                const first = state.feeds
+                    .slice()
+                    .sort((a, b) => (a.row || 1) - (b.row || 1) || (a.order || 1) - (b.order || 1))[0];
+                UI.selectFeed(first.url, first.name);
+            } else {
+                state.activeFeedUrl = null;
+                state.activeFeedName = null;
+                UI.clearArticles();
+            }
         }
 
         Utils.showMessage(`Feed '${feedName}' removed.`, "info");

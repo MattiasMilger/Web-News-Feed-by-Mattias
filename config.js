@@ -23,13 +23,13 @@ const Config = (() => {
     const DEFAULT_FEEDS = [
         {
             name: "Cyberthreats",
-            url: "https://www.helpnetsecurity.com/feed/, https://www.cshub.com/rss/categories/malware, https://www.schneier.com/feed/atom/, https://feeds.feedburner.com/TheHackersNews?format=xml, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml",
+            url: "https://www.cshub.com/rss/categories/malware, https://www.schneier.com/feed/atom/, https://feeds.feedburner.com/TheHackersNews?format=xml, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml",
             row: 1,
             order: 1
         },
         {
             name: "AI",
-            url: "https://www.helpnetsecurity.com/tag/artificial-intelligence/feed/, https://venturebeat.com/category/ai/feed/",
+            url: "https://venturebeat.com/category/ai/feed/",
             row: 1,
             order: 2
         },
