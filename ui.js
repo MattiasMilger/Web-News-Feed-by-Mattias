@@ -42,8 +42,22 @@ const UI = (() => {
             feedsByRow[rowNum].forEach(feed => {
                 const btn = document.createElement("button");
                 btn.className = "feed-button";
-                btn.textContent = feed.name;
                 btn.title = feed.url;
+
+                const nameSpan = document.createElement("span");
+                nameSpan.textContent = feed.name;
+                btn.appendChild(nameSpan);
+
+                const dot = document.createElement("span");
+                dot.className = "feed-status-dot";
+                const status = state.feedStatus[feed.url];
+                if (status) {
+                    dot.classList.add(`status-${status.status}`);
+                    dot.title = status.failedUrls.length > 0
+                        ? `Failed: ${status.failedUrls.map(RSS.extractDomain).join(", ")}`
+                        : "All sources OK";
+                }
+                btn.appendChild(dot);
 
                 if (feed.url === state.activeFeedUrl) {
                     btn.classList.add("active");
@@ -89,13 +103,29 @@ const UI = (() => {
         paginationArea.classList.add("hidden");
 
         try {
-            const entries = await RSS.fetchFeedEntries(feedUrl);
+            const { articles, failedUrls } = await RSS.fetchFeedEntries(feedUrl);
             const state = Config.getState();
-            state.allArticles[feedUrl] = entries;
+            state.allArticles[feedUrl] = articles;
+            state.feedStatus[feedUrl] = {
+                status: failedUrls.length === 0 ? "ok"
+                    : failedUrls.length < RSS.parseFeedUrls(feedUrl).length ? "partial" : "error",
+                failedUrls
+            };
             state.currentPage = 1;
 
+            renderFeedButtons();
             displayPage(categoryName, feedUrl, 1);
+
+            if (failedUrls.length > 0) {
+                Utils.showMessage(
+                    `${failedUrls.length} source(s) failed: ${failedUrls.map(RSS.extractDomain).join(", ")}`,
+                    "warning", 6000
+                );
+            }
         } catch (err) {
+            const state = Config.getState();
+            state.feedStatus[feedUrl] = { status: "error", failedUrls: RSS.parseFeedUrls(feedUrl) };
+            renderFeedButtons();
             articlesArea.innerHTML = "";
             Utils.showMessage(`Error fetching RSS: ${err.message}`, "error", 8000);
             articlesArea.innerHTML = '<p class="placeholder-text">Failed to load feed. Check the URL or try again later.</p>';
@@ -314,8 +344,14 @@ const UI = (() => {
             const state = Config.getState();
             if (state.activeFeedUrl) {
                 try {
-                    const entries = await RSS.fetchFeedEntries(state.activeFeedUrl);
-                    state.allArticles[state.activeFeedUrl] = entries;
+                    const { articles, failedUrls } = await RSS.fetchFeedEntries(state.activeFeedUrl);
+                    state.allArticles[state.activeFeedUrl] = articles;
+                    state.feedStatus[state.activeFeedUrl] = {
+                        status: failedUrls.length === 0 ? "ok"
+                            : failedUrls.length < RSS.parseFeedUrls(state.activeFeedUrl).length ? "partial" : "error",
+                        failedUrls
+                    };
+                    renderFeedButtons();
                     displayPage(state.activeFeedName || "Feed", state.activeFeedUrl, state.currentPage);
                 } catch {
                     // Silent fail on auto-refresh

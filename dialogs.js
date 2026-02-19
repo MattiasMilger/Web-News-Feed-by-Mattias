@@ -138,7 +138,7 @@ const Dialogs = (() => {
     /**
      * Save the add/edit feed form.
      */
-    function saveFeed() {
+    async function saveFeed() {
         const name = document.getElementById("feed-name-input").value.trim();
         const url = document.getElementById("feed-url-input").value.trim();
         const row = parseInt(document.getElementById("feed-row-input").value, 10);
@@ -157,6 +157,27 @@ const Dialogs = (() => {
         if (!validation.valid) {
             Utils.showMessage(validation.error, "error");
             return;
+        }
+
+        // Validate by actually fetching the feed(s)
+        const saveBtn = document.getElementById("btn-feed-save");
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Validating...";
+        try {
+            const { failedUrls } = await RSS.fetchFeedEntries(url);
+            if (failedUrls.length > 0) {
+                const total = RSS.parseFeedUrls(url).length;
+                Utils.showMessage(
+                    `${failedUrls.length} of ${total} source(s) failed to load — saving with working sources.`,
+                    "warning", 6000
+                );
+            }
+        } catch (err) {
+            Utils.showMessage(`Feed validation failed: ${err.message}`, "error", 8000);
+            return;
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save";
         }
 
         const rowNum = isNaN(row) || row < 1 || row > Config.MAX_ROWS ? 1 : row;

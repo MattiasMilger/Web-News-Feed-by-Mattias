@@ -48,6 +48,7 @@ const Config = (() => {
         activeFeedUrl: null,
         activeFeedName: null,
         allArticles: {},
+        feedStatus: {},
         currentPage: 1,
         searchTerm: ""
     };
@@ -136,6 +137,7 @@ const Config = (() => {
         state.activeFeedUrl = null;
         state.activeFeedName = null;
         state.allArticles = {};
+        state.feedStatus = {};
         state.currentPage = 1;
         state.searchTerm = "";
     }
@@ -172,6 +174,7 @@ const Config = (() => {
         state.activeFeedUrl = null;
         state.activeFeedName = null;
         state.allArticles = {};
+        state.feedStatus = {};
         state.currentPage = 1;
         state.searchTerm = "";
 

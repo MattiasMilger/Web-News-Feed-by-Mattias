@@ -209,24 +209,24 @@ const RSS = (() => {
         const results = await Promise.allSettled(urls.map(u => fetchSingleFeed(u)));
 
         let allArticles = [];
-        const errors = [];
+        const failedUrls = [];
 
         results.forEach((result, i) => {
             if (result.status === "fulfilled") {
                 allArticles = allArticles.concat(result.value);
             } else {
-                errors.push(`${extractDomain(urls[i])}: ${result.reason.message}`);
+                failedUrls.push(urls[i]);
             }
         });
 
-        if (allArticles.length === 0 && errors.length > 0) {
-            throw new Error("Failed to fetch feeds:\n" + errors.join("\n"));
+        if (allArticles.length === 0 && failedUrls.length > 0) {
+            throw new Error("Failed to fetch feeds:\n" + failedUrls.map(extractDomain).join("\n"));
         }
 
         // Sort newest first
         allArticles.sort((a, b) => b.timestamp - a.timestamp);
 
-        return allArticles.slice(0, maxEntries);
+        return { articles: allArticles.slice(0, maxEntries), failedUrls };
     }
 
     /**
