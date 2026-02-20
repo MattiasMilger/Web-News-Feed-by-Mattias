@@ -23,19 +23,19 @@ const Config = (() => {
     const DEFAULT_FEEDS = [
         {
             name: "Cyberthreats",
-            url: "https://www.cshub.com/rss/categories/malware, https://feeds.feedburner.com/TheHackersNews?format=xml, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml",
+            url: "https://www.cshub.com/rss/categories/malware, https://feeds.feedburner.com/TheHackersNews?format=xml, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml, https://www.bleepingcomputer.com/feed/",
             row: 1,
             order: 1
         },
         {
             name: "AI",
-            url: "https://venturebeat.com/category/ai/feed/",
+            url: "https://venturebeat.com/category/ai/feed/, https://machinelearningmastery.com/blog/feed/",
             row: 1,
             order: 2
         },
         {
             name: "IT General",
-            url: "https://www.computerweekly.com/rss/RSS-Feed.xml",
+            url: "https://www.computerweekly.com/rss/RSS-Feed.xml, https://www.techrepublic.com/rssfeeds/articles/",
             row: 1,
             order: 3
         }
