@@ -73,4 +73,5 @@ Works in all modern browsers (Chrome, Firefox, Edge, Safari). Requires JavaScrip
 
 **Developer**: Mattias Milger  
 **Email**: mattias.r.milger@gmail.com  
-**GitHub**: [MattiasMilger](https://github.com/MattiasMilger/Vasenvaktaren)
+
+**GitHub**: [MattiasMilger](https://github.com/MattiasMilger)
