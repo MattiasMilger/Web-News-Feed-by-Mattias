@@ -35,7 +35,7 @@ const Config = (() => {
         },
         {
             name: "IT General",
-            url: "https://www.computerweekly.com/rss/RSS-Feed.xml, https://www.techrepublic.com/rssfeeds/articles/",
+            url: "https://www.computerweekly.com/rss/RSS-Feed.xml, https://www.crn.com/news/rss.xml",
             row: 1,
             order: 3
         }
