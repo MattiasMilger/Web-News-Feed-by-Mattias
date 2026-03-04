@@ -38,6 +38,12 @@ const Config = (() => {
             url: "https://www.computerweekly.com/rss/RSS-Feed.xml, https://www.crn.com/news/rss.xml",
             row: 1,
             order: 3
+        },
+        {
+            name: "World",
+            url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
+            row: 2,
+            order: 1
         }
     ];
 
