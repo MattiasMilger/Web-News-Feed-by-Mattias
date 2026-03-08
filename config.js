@@ -44,6 +44,12 @@ const Config = (() => {
             url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
             row: 2,
             order: 1
+        },
+        {
+            name: "Finance",
+            url: "https://www.ft.com/rss/home/international",
+            row: 2,
+            order: 2
         }
     ];
 

@@ -89,6 +89,7 @@ const Dialogs = (() => {
             const opt = document.createElement("option");
             opt.value = i;
             opt.textContent = `${feed.name}${amalgamIndicator} [Row ${feed.row}, Order ${feed.order}]: ${feed.url}`;
+            if (feed.url === state.activeFeedUrl) opt.selected = true;
             listbox.appendChild(opt);
         });
     }
