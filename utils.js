@@ -1,5 +1,5 @@
 /**
- * utils.js — Utility functions
+ * utils.js - Utility functions
  * Mirrors the Python utils.py module.
  * Handles datetime display, message area, and search highlighting.
  */

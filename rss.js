@@ -1,5 +1,5 @@
 /**
- * rss.js — RSS feed fetching and parsing
+ * rss.js - RSS feed fetching and parsing
  * Mirrors the Python rss.py module.
  * Uses multiple CORS proxies with automatic fallback to fetch feeds
  * from the browser, then parses the XML with DOMParser.

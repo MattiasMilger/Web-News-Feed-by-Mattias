@@ -1,6 +1,6 @@
 # Web News Feed by Mattias
 
-A browser-based RSS news feed reader built with vanilla HTML, CSS, and JavaScript. Runs entirely client-side — no server or backend required. Designed for GitHub Pages.
+A browser-based RSS news feed reader built with vanilla HTML, CSS, and JavaScript. Runs entirely client-side - no server or backend required. Designed for GitHub Pages.
 
 ## Try It Out
 
@@ -12,17 +12,17 @@ Open `index.html` in a modern browser. No build tools or dependencies required.
 
 ## Features
 
-- **RSS Feed Reading** — Fetch and display articles from any public RSS/Atom feed.
-- **Amalgamated Feeds** — Combine multiple RSS sources into a single category (comma-separated URLs).
-- **Feed Organization** — Arrange feeds into up to 10 rows; each feed has a row (1-10) and an order (1-10) controlling its position within the row. Max 10 feeds per row.
-- **Source Badges** — Every article displays its source domain.
-- **Pagination** — Articles displayed 12 per page, up to 10 pages per feed.
-- **Live Search** — Filter and highlight articles by keyword in real-time.
-- **Dark / Light Theme** — Toggle between dark and light modes (dark by default).
-- **Auto-Refresh** — Feeds refresh automatically every 5 minutes.
-- **Import/Export** — Export, import, or reset your configuration via JSON files.
-- **Persistent Storage** — All settings saved in your browser's `localStorage`.
-- **Responsive Design** — Works on desktop and mobile devices.
+- **RSS Feed Reading** - Fetch and display articles from any public RSS/Atom feed.
+- **Amalgamated Feeds** - Combine multiple RSS sources into a single category (comma-separated URLs).
+- **Feed Organization** - Arrange feeds into up to 10 rows; each feed has a row (1-10) and an order (1-10) controlling its position within the row. Max 10 feeds per row.
+- **Source Badges** - Every article displays its source domain.
+- **Pagination** - Articles displayed 12 per page, up to 10 pages per feed.
+- **Live Search** - Filter and highlight articles by keyword in real-time.
+- **Dark / Light Theme** - Toggle between dark and light modes (dark by default).
+- **Auto-Refresh** - Feeds refresh automatically every 5 minutes.
+- **Import/Export** - Export, import, or reset your configuration via JSON files.
+- **Persistent Storage** - All settings saved in your browser's `localStorage`.
+- **Responsive Design** - Works on desktop and mobile devices.
 
 ## Project Structure
 
@@ -61,9 +61,9 @@ Web News Feed by Mattias/
 
 ## Technical Notes
 
-- **No external dependencies** — pure vanilla HTML, CSS, and JavaScript.
-- **CORS Proxies** — Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`).
-- **localStorage** — All configuration persists in the browser. Clearing browser data will reset feeds to defaults.
+- **No external dependencies** - pure vanilla HTML, CSS, and JavaScript.
+- **CORS Proxies** - Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`).
+- **localStorage** - All configuration persists in the browser. Clearing browser data will reset feeds to defaults.
 
 ## Browser Support
 

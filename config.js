@@ -1,5 +1,5 @@
 /**
- * config.js — Configuration and state management
+ * config.js - Configuration and state management
  * Stores a single feed list and theme preference in localStorage.
  * Supports export/import/reset of configuration.
  */

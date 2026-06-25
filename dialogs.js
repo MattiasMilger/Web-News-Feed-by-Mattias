@@ -1,5 +1,5 @@
 /**
- * dialogs.js — Modal dialog management
+ * dialogs.js - Modal dialog management
  * Handles feed manager, add/edit feed, config export/import/reset.
  */
 
@@ -169,7 +169,7 @@ const Dialogs = (() => {
             if (failedUrls.length > 0) {
                 const total = RSS.parseFeedUrls(url).length;
                 Utils.showMessage(
-                    `${failedUrls.length} of ${total} source(s) failed to load — saving with working sources.`,
+                    `${failedUrls.length} of ${total} source(s) failed to load - saving with working sources.`,
                     "warning", 6000
                 );
             }

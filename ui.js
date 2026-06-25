@@ -1,5 +1,5 @@
 /**
- * ui.js — Main UI rendering and interaction
+ * ui.js - Main UI rendering and interaction
  * Handles feed buttons, article display, pagination, search, and theme toggling.
  * Entry point that wires everything together on DOMContentLoaded.
  */
@@ -191,7 +191,7 @@ const UI = (() => {
             ? ` (Page ${pageNumber} of ${displayTotalPages})`
             : "";
         const searchNote = searchTerm
-            ? ` — filtered by "${Utils.escapeHtml(searchTerm)}" (${displayTotal} results)`
+            ? ` - filtered by "${Utils.escapeHtml(searchTerm)}" (${displayTotal} results)`
             : "";
 
         const header = document.createElement("div");
