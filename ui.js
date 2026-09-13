@@ -411,6 +411,9 @@ const UI = (() => {
         // Manage Feeds
         document.getElementById("btn-manage-feeds").addEventListener("click", Dialogs.openFeedManager);
 
+        // Edit Feed shortcut (edits the currently active feed directly)
+        document.getElementById("btn-edit-current-feed").addEventListener("click", Dialogs.openEditCurrentFeed);
+
         // Import/Export config modal
         document.getElementById("btn-manage-config").addEventListener("click", Dialogs.openConfigManager);
 
@@ -421,6 +424,9 @@ const UI = (() => {
 
         // Feed Add/Edit save
         document.getElementById("btn-feed-save").addEventListener("click", Dialogs.saveFeed);
+
+        // Add another URL row in the feed edit modal
+        document.getElementById("btn-add-url").addEventListener("click", () => Dialogs.addUrlRow(""));
 
         // Config management
         document.getElementById("btn-export-config").addEventListener("click", Dialogs.exportConfig);

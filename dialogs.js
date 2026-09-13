@@ -6,6 +6,8 @@
 const Dialogs = (() => {
     // Track which feed is being edited (null = adding new)
     let editingFeedIndex = null;
+    // Track which feed row is selected in the feed manager list
+    let selectedFeedIndex = null;
 
     /**
      * Open a modal by ID.
@@ -62,8 +64,120 @@ const Dialogs = (() => {
      * Open the feed manager modal and populate the listbox.
      */
     function openFeedManager() {
+        const state = Config.getState();
+        if (selectedFeedIndex === null || selectedFeedIndex < 0 || selectedFeedIndex >= state.feeds.length) {
+            const activeIdx = state.feeds.findIndex(f => f.url === state.activeFeedUrl);
+            selectedFeedIndex = activeIdx >= 0 ? activeIdx : null;
+        }
         refreshFeedListbox();
         openModal("feed-manager-modal");
+    }
+
+    /**
+     * Determine a feed's current status (ok / partial / error / unknown)
+     * based on the last fetch result stored in state.feedStatus.
+     */
+    function getFeedStatusInfo(feed, state) {
+        const status = state.feedStatus[feed.url];
+        if (!status) {
+            return { cls: "unknown", label: "Not checked yet" };
+        }
+        if (status.status === "ok") {
+            return { cls: "ok", label: "Up - all sources responding" };
+        }
+        if (status.status === "partial") {
+            const failedDomains = status.failedUrls.map(RSS.extractDomain).join(", ");
+            return { cls: "partial", label: `Partially down - ${failedDomains} not responding` };
+        }
+        const failedDomains = status.failedUrls.map(RSS.extractDomain).join(", ");
+        return { cls: "error", label: `Down - ${failedDomains} not responding` };
+    }
+
+    /**
+     * Determine a single URL's status within an amalgamated feed, based on
+     * the aggregate fetch result (which lists which specific URLs failed).
+     */
+    function getUrlStatusInfo(url, aggregateStatus) {
+        if (!aggregateStatus) {
+            return { cls: "unknown", label: "Unchecked", title: "Not checked yet" };
+        }
+        if (aggregateStatus.failedUrls.includes(url)) {
+            return { cls: "error", label: "Down", title: "Not responding" };
+        }
+        return { cls: "ok", label: "Up", title: "Responding" };
+    }
+
+    /**
+     * Build a single editable URL row for the Add/Edit Feed modal.
+     */
+    function createUrlRowElement(url, statusInfo) {
+        const row = document.createElement("div");
+        row.className = "feed-url-row";
+
+        const dot = document.createElement("span");
+        dot.className = `feed-list-status-dot status-${statusInfo.cls}`;
+        dot.title = statusInfo.title || statusInfo.label;
+        row.appendChild(dot);
+
+        const label = document.createElement("span");
+        label.className = `feed-url-status-text status-${statusInfo.cls}`;
+        label.textContent = statusInfo.label;
+        row.appendChild(label);
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "feed-url-row-input";
+        input.placeholder = "https://example.com/feed.xml";
+        input.value = url;
+        row.appendChild(input);
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "feed-url-remove-btn";
+        removeBtn.textContent = "\u2715";
+        removeBtn.title = "Remove this URL";
+        removeBtn.addEventListener("click", () => row.remove());
+        row.appendChild(removeBtn);
+
+        return row;
+    }
+
+    /**
+     * Append a new, empty (or pre-filled) URL row to the list.
+     */
+    function addUrlRow(url) {
+        const list = document.getElementById("feed-url-list");
+        const row = createUrlRowElement(url || "", { cls: "unknown", label: "New", title: "Not checked yet" });
+        list.appendChild(row);
+        if (!url) {
+            row.querySelector(".feed-url-row-input").focus();
+        }
+    }
+
+    /**
+     * Rebuild the URL row list from an array of URLs, each annotated with
+     * its status from the last fetch of the amalgamated feed (if any).
+     */
+    function renderFeedUrlRows(urls, aggregateStatus) {
+        const list = document.getElementById("feed-url-list");
+        list.innerHTML = "";
+        if (!urls || urls.length === 0) {
+            addUrlRow("");
+            return;
+        }
+        urls.forEach(u => {
+            const statusInfo = getUrlStatusInfo(u, aggregateStatus);
+            list.appendChild(createUrlRowElement(u, statusInfo));
+        });
+    }
+
+    /**
+     * Read all non-empty URL values currently in the URL row list.
+     */
+    function collectUrlRowValues() {
+        return Array.from(document.querySelectorAll("#feed-url-list .feed-url-row-input"))
+            .map(input => input.value.trim())
+            .filter(v => v.length > 0);
     }
 
     /**
@@ -73,6 +187,11 @@ const Dialogs = (() => {
         const listbox = document.getElementById("feed-listbox");
         const state = Config.getState();
         listbox.innerHTML = "";
+
+        if (state.feeds.length === 0) {
+            listbox.innerHTML = '<p class="placeholder-text">No feeds configured.</p>';
+            return;
+        }
 
         // Display sorted by row then order, but keep original index as value
         const sortedIndices = state.feeds
@@ -85,12 +204,52 @@ const Dialogs = (() => {
         sortedIndices.forEach(i => {
             const feed = state.feeds[i];
             const urlCount = RSS.parseFeedUrls(feed.url).length;
-            const amalgamIndicator = urlCount > 1 ? ` [${urlCount} sources]` : "";
-            const opt = document.createElement("option");
-            opt.value = i;
-            opt.textContent = `${feed.name}${amalgamIndicator} [Row ${feed.row}, Order ${feed.order}]: ${feed.url}`;
-            if (feed.url === state.activeFeedUrl) opt.selected = true;
-            listbox.appendChild(opt);
+            const amalgamIndicator = urlCount > 1 ? ` · ${urlCount} sources` : "";
+            const statusInfo = getFeedStatusInfo(feed, state);
+
+            const row = document.createElement("div");
+            row.className = "feed-list-row";
+            row.setAttribute("role", "option");
+            row.dataset.index = i;
+            if (i === selectedFeedIndex) row.classList.add("selected");
+            if (feed.url === state.activeFeedUrl) row.classList.add("is-active-feed");
+            row.setAttribute("aria-selected", i === selectedFeedIndex ? "true" : "false");
+
+            const dot = document.createElement("span");
+            dot.className = `feed-list-status-dot status-${statusInfo.cls}`;
+            dot.title = statusInfo.label;
+            row.appendChild(dot);
+
+            const main = document.createElement("div");
+            main.className = "feed-list-main";
+
+            const nameEl = document.createElement("div");
+            nameEl.className = "feed-list-name";
+            nameEl.textContent = feed.name;
+            main.appendChild(nameEl);
+
+            const metaEl = document.createElement("div");
+            metaEl.className = "feed-list-meta";
+            const statusText = document.createElement("span");
+            statusText.className = `feed-list-status-text status-${statusInfo.cls}`;
+            statusText.textContent = statusInfo.label;
+            metaEl.textContent = `Row ${feed.row}, Order ${feed.order}${amalgamIndicator} — `;
+            metaEl.appendChild(statusText);
+            main.appendChild(metaEl);
+
+            const urlEl = document.createElement("div");
+            urlEl.className = "feed-list-url";
+            urlEl.textContent = feed.url;
+            main.appendChild(urlEl);
+
+            row.appendChild(main);
+
+            row.addEventListener("click", () => {
+                selectedFeedIndex = i;
+                refreshFeedListbox();
+            });
+
+            listbox.appendChild(row);
         });
     }
 
@@ -105,9 +264,9 @@ const Dialogs = (() => {
 
         document.getElementById("feed-edit-title").textContent = "Add Feed";
         document.getElementById("feed-name-input").value = "";
-        document.getElementById("feed-url-input").value = "";
         document.getElementById("feed-row-input").value = "1";
         document.getElementById("feed-order-input").value = defaultOrder;
+        renderFeedUrlRows([], null);
         openModal("feed-edit-modal");
         document.getElementById("feed-name-input").focus();
     }
@@ -116,12 +275,11 @@ const Dialogs = (() => {
      * Open the edit-feed modal for the selected feed.
      */
     function openEditFeed() {
-        const listbox = document.getElementById("feed-listbox");
-        if (listbox.selectedIndex < 0) {
+        if (selectedFeedIndex === null || selectedFeedIndex < 0) {
             Utils.showMessage("Please select a feed to edit.", "warning");
             return;
         }
-        const idx = parseInt(listbox.options[listbox.selectedIndex].value, 10);
+        const idx = selectedFeedIndex;
 
         const state = Config.getState();
         const feed = state.feeds[idx];
@@ -129,11 +287,34 @@ const Dialogs = (() => {
         editingFeedIndex = idx;
         document.getElementById("feed-edit-title").textContent = "Edit Feed";
         document.getElementById("feed-name-input").value = feed.name;
-        document.getElementById("feed-url-input").value = feed.url;
         document.getElementById("feed-row-input").value = feed.row;
         document.getElementById("feed-order-input").value = feed.order || Config.DEFAULT_ORDER;
+
+        const urls = RSS.parseFeedUrls(feed.url);
+        const aggregateStatus = state.feedStatus[feed.url] || null;
+        renderFeedUrlRows(urls, aggregateStatus);
+
         openModal("feed-edit-modal");
         document.getElementById("feed-name-input").focus();
+    }
+
+    /**
+     * Shortcut: open the edit modal directly for the currently active
+     * feed, without needing to open Manage Feeds and select it first.
+     */
+    function openEditCurrentFeed() {
+        const state = Config.getState();
+        const idx = state.activeFeedUrl
+            ? state.feeds.findIndex(f => f.url === state.activeFeedUrl)
+            : -1;
+
+        if (idx < 0) {
+            Utils.showMessage("No feed is currently selected.", "info");
+            return;
+        }
+
+        selectedFeedIndex = idx;
+        openEditFeed();
     }
 
     /**
@@ -141,7 +322,8 @@ const Dialogs = (() => {
      */
     async function saveFeed() {
         const name = document.getElementById("feed-name-input").value.trim();
-        const url = document.getElementById("feed-url-input").value.trim();
+        const urlList = collectUrlRowValues();
+        const url = urlList.join(", ");
         const row = parseInt(document.getElementById("feed-row-input").value, 10);
         const order = parseInt(document.getElementById("feed-order-input").value, 10);
 
@@ -149,8 +331,8 @@ const Dialogs = (() => {
             Utils.showMessage("Please enter a category name.", "error");
             return;
         }
-        if (!url) {
-            Utils.showMessage("Please enter at least one RSS URL.", "error");
+        if (urlList.length === 0) {
+            Utils.showMessage("Please add at least one RSS URL.", "error");
             return;
         }
 
@@ -224,9 +406,11 @@ const Dialogs = (() => {
                 }
             }
 
+            selectedFeedIndex = editingFeedIndex;
             Utils.showMessage(`Feed '${name}' updated.`, "success");
         } else {
             state.feeds.push({ name, url, row: rowNum, order: orderNum });
+            selectedFeedIndex = state.feeds.length - 1;
             const urlCount = RSS.parseFeedUrls(url).length;
             const msg = urlCount > 1
                 ? `Feed '${name}' added (${urlCount} sources amalgamated).`
@@ -251,12 +435,11 @@ const Dialogs = (() => {
      * Remove the selected feed.
      */
     function removeFeed() {
-        const listbox = document.getElementById("feed-listbox");
-        if (listbox.selectedIndex < 0) {
+        if (selectedFeedIndex === null || selectedFeedIndex < 0) {
             Utils.showMessage("Please select a feed to remove.", "warning");
             return;
         }
-        const idx = parseInt(listbox.options[listbox.selectedIndex].value, 10);
+        const idx = selectedFeedIndex;
 
         const state = Config.getState();
         const removedFeed = state.feeds[idx];
@@ -267,6 +450,7 @@ const Dialogs = (() => {
 
         delete state.allArticles[removedFeed.url];
         state.feeds.splice(idx, 1);
+        selectedFeedIndex = null;
         Config.save();
 
         refreshFeedListbox();
@@ -342,6 +526,7 @@ const Dialogs = (() => {
                 const result = Config.importConfig(data);
 
                 if (result === true) {
+                    selectedFeedIndex = null;
                     Utils.applyTheme(Config.getState().currentTheme);
                     UI.renderFeedButtons();
                     UI.clearArticles();
@@ -372,6 +557,7 @@ const Dialogs = (() => {
 
         Config.resetToDefaults();
         Config.save();
+        selectedFeedIndex = null;
 
         Utils.applyTheme(Config.getState().currentTheme);
         UI.renderFeedButtons();
@@ -397,8 +583,10 @@ const Dialogs = (() => {
         refreshFeedListbox,
         openAddFeed,
         openEditFeed,
+        openEditCurrentFeed,
         saveFeed,
         removeFeed,
+        addUrlRow,
 
         // Config management
         openConfigManager,

@@ -16,6 +16,7 @@
         <div class="header-controls">
             <div class="header-buttons">
                 <button id="btn-manage-feeds" class="control-button accent-button">Manage Feeds</button>
+                <button id="btn-edit-current-feed" class="control-button">Edit Feed</button>
                 <button id="btn-toggle-theme" class="control-button">Toggle Theme</button>
             </div>
             <div class="header-search">
@@ -43,7 +44,7 @@
             <span class="close-button" data-modal="feed-manager-modal">&times;</span>
             <h2>Manage Feeds</h2>
             <div class="feed-list-container">
-                <select id="feed-listbox" size="8" class="feed-listbox"></select>
+                <div id="feed-listbox" class="feed-listbox" role="listbox" aria-label="Feeds"></div>
             </div>
             <div class="modal-button-row">
                 <button id="btn-feed-add" class="modal-action-button accent-button">Add Feed</button>
@@ -64,8 +65,9 @@
                 <input type="text" id="feed-name-input" placeholder="e.g., Tech News" maxlength="50">
             </div>
             <div class="form-group">
-                <label for="feed-url-input">RSS URL(s):</label>
-                <textarea id="feed-url-input" rows="4" placeholder="Enter RSS URL(s). Separate multiple URLs with commas for amalgamation."></textarea>
+                <label>RSS Source URLs:</label>
+                <div id="feed-url-list" class="feed-url-list"></div>
+                <button type="button" id="btn-add-url" class="feed-url-add-button">+ Add URL</button>
             </div>
             <div class="form-group">
                 <label for="feed-row-input">Row (1-10):</label>
@@ -119,6 +121,7 @@
                         <li><strong>Add feeds</strong> - provide a name, RSS URL, row (1-10), and order (1-10).</li>
                         <li><strong>Amalgamated feeds</strong> - combine multiple RSS URLs (comma-separated) into one category.</li>
                         <li><strong>Edit &amp; Remove</strong> - modify or delete feeds from the Manage Feeds dialog.</li>
+                        <li><strong>Edit Feed shortcut</strong> - jump straight to editing the currently active feed without opening Manage Feeds first.</li>
                         <li><strong>Rows 1-10</strong> - organize feed buttons into horizontal rows.</li>
                         <li><strong>Order 1-10</strong> - controls the position of a feed within its row. Max 10 feeds per row.</li>
                         <li><strong>Swap on conflict</strong> - editing a feed into an occupied row/order slot swaps the two feeds.</li>

@@ -201,6 +201,10 @@ h1 {
 /* --- Feed Buttons Area --- */
 .feed-buttons-area {
     margin-bottom: 15px;
+    padding: 10px;
+    background-color: var(--bg-color);
+    border-radius: 6px;
+    transition: background-color 0.3s;
 }
 
 .feed-row {
@@ -214,11 +218,12 @@ h1 {
 .feed-button {
     padding: 8px 16px;
     border: 1px solid var(--border-color);
+    border-left: 3px solid var(--accent-color);
     border-radius: 4px;
     cursor: pointer;
     font-weight: bold;
     font-size: 0.85em;
-    background-color: var(--button-bg);
+    background-color: var(--entry-bg);
     color: var(--fg-color);
     transition: background-color 0.2s, color 0.2s, border-color 0.2s, transform 0.1s;
     white-space: nowrap;
@@ -660,9 +665,11 @@ body.dark-mode .message-area.success {
 
 .feed-listbox {
     width: 100%;
-    min-height: 180px;
-    font-family: "Consolas", monospace;
-    font-size: 0.9em;
+    max-height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     padding: 5px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
@@ -671,9 +678,198 @@ body.dark-mode .message-area.success {
     transition: background-color 0.3s, color 0.3s, border-color 0.3s;
 }
 
-.feed-listbox option:checked {
+.feed-list-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--separator-color);
+    border-radius: 6px;
+    background-color: var(--container-bg);
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.feed-list-row:hover {
+    background-color: var(--button-bg);
+}
+
+.feed-list-row.selected {
+    border-color: var(--accent-color);
+    background-color: color-mix(in srgb, var(--accent-color) 12%, var(--container-bg));
+}
+
+.feed-list-row.is-active-feed .feed-list-name::after {
+    content: " (active)";
+    font-weight: normal;
+    font-style: italic;
+    font-size: 0.85em;
+    color: var(--summary-color);
+}
+
+.feed-list-status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    min-width: 10px;
+    border-radius: 50%;
+    margin-top: 4px;
+    flex-shrink: 0;
+}
+
+.feed-list-status-dot.status-ok {
+    background-color: var(--success-color);
+}
+
+.feed-list-status-dot.status-partial {
+    background-color: var(--warning-color);
+}
+
+.feed-list-status-dot.status-error {
+    background-color: var(--error-color);
+}
+
+.feed-list-status-dot.status-unknown {
     background-color: var(--select-bg);
+}
+
+.feed-list-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+
+.feed-list-name {
+    font-weight: bold;
+    font-size: 0.95em;
     color: var(--fg-color);
+}
+
+.feed-list-meta {
+    font-size: 0.78em;
+    color: var(--summary-color);
+}
+
+.feed-list-status-text {
+    font-size: 0.78em;
+    font-style: italic;
+}
+
+.feed-list-status-text.status-ok {
+    color: var(--success-color);
+}
+
+.feed-list-status-text.status-partial {
+    color: var(--warning-color);
+}
+
+.feed-list-status-text.status-error {
+    color: var(--error-color);
+}
+
+.feed-list-status-text.status-unknown {
+    color: var(--summary-color);
+}
+
+.feed-list-url {
+    font-size: 0.78em;
+    color: var(--summary-color);
+    font-family: "Consolas", monospace;
+    word-break: break-all;
+}
+
+/* --- Feed URL List (Add/Edit modal) --- */
+.feed-url-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.feed-url-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--entry-bg);
+}
+
+.feed-url-row .feed-list-status-dot {
+    margin-top: 0;
+}
+
+.feed-url-row-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-family: "Consolas", monospace;
+    background-color: var(--container-bg);
+    color: var(--fg-color);
+}
+
+.feed-url-status-text {
+    font-size: 0.75em;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.feed-url-status-text.status-ok {
+    color: var(--success-color);
+}
+
+.feed-url-status-text.status-partial {
+    color: var(--warning-color);
+}
+
+.feed-url-status-text.status-error {
+    color: var(--error-color);
+}
+
+.feed-url-status-text.status-unknown {
+    color: var(--summary-color);
+}
+
+.feed-url-remove-btn {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--button-bg);
+    color: var(--fg-color);
+    cursor: pointer;
+    font-size: 0.9em;
+    line-height: 1;
+}
+
+.feed-url-remove-btn:hover {
+    background-color: var(--error-color);
+    color: white;
+    border-color: var(--error-color);
+}
+
+.feed-url-add-button {
+    padding: 6px 14px;
+    border: 1px dashed var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.82em;
+    background-color: transparent;
+    color: var(--accent-color);
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.feed-url-add-button:hover {
+    background-color: var(--entry-bg);
+    border-color: var(--accent-color);
 }
 
 .modal-button-row {
