@@ -6,14 +6,73 @@
  */
 
 const RSS = (() => {
-    // Multiple CORS proxies for fallback reliability
-    const CORS_PROXIES = [
-        url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-        url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+    // Multiple CORS proxies for fallback reliability. Each public one is
+    // a free, unauthenticated, shared service that can be rate-limited,
+    // down, or blocked outright by ad blockers / network filters that
+    // flag "known proxy/relay" domains as a category. If you deploy your
+    // own tiny proxy (see worker.js - a free Cloudflare Worker), set its
+    // URL below and it will always be tried first, with the public
+    // proxies kept only as a fallback.
+    const SELF_HOSTED_PROXY_BASE = ""; // e.g. "https://your-worker-name.your-subdomain.workers.dev/?url="
+
+    const PUBLIC_CORS_PROXIES = [
+        {
+            name: "corsproxy.io",
+            build: url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+        },
+        {
+            name: "allorigins.win",
+            build: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+        },
+        {
+            name: "codetabs.com",
+            build: url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+        },
+        {
+            name: "thingproxy.freeboard.io",
+            build: url => `https://thingproxy.freeboard.io/fetch/${url}`
+        },
+        {
+            name: "cors.eu.org",
+            build: url => `https://cors.eu.org/${url}`
+        },
+        {
+            name: "allorigins.win (json)",
+            build: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+            // This endpoint wraps the feed in { contents: "<xml...>" } instead
+            // of returning it raw, so unwrap it before handing it to the XML parser.
+            extract: text => {
+                const data = JSON.parse(text);
+                return data && typeof data.contents === "string" ? data.contents : text;
+            }
+        }
     ];
 
+    const CORS_PROXIES = SELF_HOSTED_PROXY_BASE
+        ? [
+            { name: "self-hosted", build: url => `${SELF_HOSTED_PROXY_BASE}${encodeURIComponent(url)}` },
+            ...PUBLIC_CORS_PROXIES
+        ]
+        : PUBLIC_CORS_PROXIES;
+
     const FETCH_TIMEOUT = 15000; // 15 seconds per proxy attempt
+    const PROXY_COOLDOWN_MS = 60000; // skip a proxy for 1 minute after it rate-limits us
+    const STAGGER_DELAY_MS = 350; // delay between starting each URL's fetch in an amalgamated feed
+
+    // Per-proxy cooldown tracking (module-level, resets on page reload).
+    const proxyCooldownUntil = {};
+
+    function isProxyOnCooldown(name) {
+        return Date.now() < (proxyCooldownUntil[name] || 0);
+    }
+
+    function markProxyCooldown(name, ms) {
+        proxyCooldownUntil[name] = Date.now() + ms;
+    }
+
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
     /**
      * Parse comma-separated URLs from a string.
@@ -140,9 +199,11 @@ const RSS = (() => {
 
     /**
      * Fetch with a single proxy. Returns response text or throws.
+     * Throws with `isRateLimited: true` when the proxy itself signals
+     * throttling (HTTP 429), so callers can back off from it.
      */
-    async function fetchWithProxy(proxyFn, url) {
-        const proxyUrl = proxyFn(url);
+    async function fetchWithProxy(proxy, url) {
+        const proxyUrl = proxy.build(url);
         const timeout = createTimeoutSignal(FETCH_TIMEOUT);
 
         try {
@@ -150,10 +211,23 @@ const RSS = (() => {
             timeout.clear();
 
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+                const err = new Error(`HTTP ${response.status}`);
+                if (response.status === 429) {
+                    err.isRateLimited = true;
+                    err.message = "Rate limited (429)";
+                }
+                throw err;
             }
 
-            const text = await response.text();
+            let text = await response.text();
+
+            if (proxy.extract) {
+                try {
+                    text = proxy.extract(text);
+                } catch (e) {
+                    throw new Error("Proxy returned unexpected format");
+                }
+            }
 
             // Sanity check: response should look like XML
             const trimmed = text.trimStart();
@@ -177,17 +251,25 @@ const RSS = (() => {
 
     /**
      * Fetch a single RSS feed URL, trying multiple CORS proxies.
+     * Proxies currently on cooldown (recently rate-limited) are skipped
+     * unless every proxy is cooling down, in which case we try anyway
+     * rather than give up outright.
      * Returns an array of article objects.
      */
     async function fetchSingleFeed(url) {
         const errors = [];
+        const available = CORS_PROXIES.filter(p => !isProxyOnCooldown(p.name));
+        const proxiesToTry = available.length > 0 ? available : CORS_PROXIES;
 
-        for (const proxyFn of CORS_PROXIES) {
+        for (const proxy of proxiesToTry) {
             try {
-                const text = await fetchWithProxy(proxyFn, url);
+                const text = await fetchWithProxy(proxy, url);
                 return parseXml(text, url);
             } catch (err) {
-                errors.push(err.message);
+                errors.push(`${proxy.name}: ${err.message}`);
+                if (err.isRateLimited) {
+                    markProxyCooldown(proxy.name, PROXY_COOLDOWN_MS);
+                }
             }
         }
 
@@ -197,6 +279,9 @@ const RSS = (() => {
     /**
      * Fetch all feeds for a given feedUrl string (may be comma-separated
      * for amalgamated feeds). Returns merged, sorted array of articles.
+     * Each URL's fetch is staggered slightly so an amalgamated feed
+     * doesn't fire a burst of simultaneous proxy requests that trips a
+     * per-second rate limit.
      */
     async function fetchFeedEntries(feedUrl, maxEntries) {
         maxEntries = maxEntries || Config.MAX_ENTRIES_PER_FEED;
@@ -206,7 +291,12 @@ const RSS = (() => {
             throw new Error("No valid URLs to fetch");
         }
 
-        const results = await Promise.allSettled(urls.map(u => fetchSingleFeed(u)));
+        const results = await Promise.allSettled(urls.map(async (u, i) => {
+            if (i > 0) {
+                await delay(i * STAGGER_DELAY_MS);
+            }
+            return fetchSingleFeed(u);
+        }));
 
         let allArticles = [];
         const failedUrls = [];
