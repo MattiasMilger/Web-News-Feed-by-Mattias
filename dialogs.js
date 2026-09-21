@@ -70,6 +70,7 @@ const Dialogs = (() => {
             selectedFeedIndex = activeIdx >= 0 ? activeIdx : null;
         }
         refreshFeedListbox();
+        updateProtectButtonLabel();
         openModal("feed-manager-modal");
     }
 
@@ -225,7 +226,7 @@ const Dialogs = (() => {
 
             const nameEl = document.createElement("div");
             nameEl.className = "feed-list-name";
-            nameEl.textContent = feed.name;
+            nameEl.textContent = (feed.isProtected ? "\u2605 " : "") + feed.name;
             main.appendChild(nameEl);
 
             const metaEl = document.createElement("div");
@@ -247,10 +248,52 @@ const Dialogs = (() => {
             row.addEventListener("click", () => {
                 selectedFeedIndex = i;
                 refreshFeedListbox();
+                updateProtectButtonLabel();
             });
 
             listbox.appendChild(row);
         });
+    }
+
+    /**
+     * Update the Protect/Unprotect button in the feed manager to reflect
+     * the currently selected feed's protection state.
+     */
+    function updateProtectButtonLabel() {
+        const btn = document.getElementById("btn-feed-protect");
+        if (!btn) return;
+        const state = Config.getState();
+        const feed = (selectedFeedIndex !== null && selectedFeedIndex >= 0 && selectedFeedIndex < state.feeds.length)
+            ? state.feeds[selectedFeedIndex]
+            : null;
+        btn.textContent = feed && feed.isProtected ? "\u2606 Unprotect Selected" : "\u2605 Protect Selected";
+    }
+
+    /**
+     * Toggle the protected flag on the currently selected feed.
+     */
+    function toggleSelectedFeedProtected() {
+        if (selectedFeedIndex === null || selectedFeedIndex < 0) {
+            Utils.showMessage("Please select a feed to protect.", "warning");
+            return;
+        }
+
+        const state = Config.getState();
+        const feed = state.feeds[selectedFeedIndex];
+        const nowProtected = Config.toggleProtected(selectedFeedIndex);
+        if (nowProtected === null) {
+            Utils.showMessage("Feed not found.", "error");
+            return;
+        }
+
+        refreshFeedListbox();
+        updateProtectButtonLabel();
+        Utils.showMessage(
+            nowProtected
+                ? `Feed '${feed.name}' is now protected from removal.`
+                : `Feed '${feed.name}' is no longer protected.`,
+            "info", 3000
+        );
     }
 
     /**
@@ -446,6 +489,11 @@ const Dialogs = (() => {
         const feedName = removedFeed.name;
         const wasActive = state.activeFeedUrl === removedFeed.url;
 
+        if (removedFeed.isProtected) {
+            Utils.showMessage(`'${feedName}' is protected. Unprotect it first (★ Protect Selected) before removing.`, "error");
+            return;
+        }
+
         if (!confirm(`Remove '${feedName}'?`)) return;
 
         delete state.allArticles[removedFeed.url];
@@ -550,10 +598,42 @@ const Dialogs = (() => {
     }
 
     /**
+     * Open the reset-config confirmation modal. Reached only via the
+     * discreet "Danger Zone" trigger in Import/Export. Requires typing
+     * RESET before the erase button becomes clickable, plus a final
+     * native confirm() as a second gate against stray clicks.
+     */
+    function openResetConfigModal() {
+        const state = Config.getState();
+        const protectedCount = state.feeds.filter(f => f.isProtected).length;
+
+        let msg = `${state.feeds.length} feed${state.feeds.length !== 1 ? "s" : ""} and all settings will be permanently deleted, restoring the defaults.`;
+        if (protectedCount > 0) {
+            msg += ` This includes ${protectedCount} protected feed${protectedCount !== 1 ? "s" : ""} - protection does not survive a full reset.`;
+        }
+        document.getElementById("reset-config-stats").textContent = msg;
+
+        document.getElementById("reset-config-confirm-input").value = "";
+        document.getElementById("btn-reset-config-confirm").disabled = true;
+
+        closeModal("config-modal");
+        openModal("reset-config-modal");
+        setTimeout(() => document.getElementById("reset-config-confirm-input").focus(), 50);
+    }
+
+    function updateResetConfigConfirmButton() {
+        const input = document.getElementById("reset-config-confirm-input");
+        document.getElementById("btn-reset-config-confirm").disabled = input.value.trim() !== "RESET";
+    }
+
+    /**
      * Reset config to factory defaults.
      */
-    function resetConfig() {
-        if (!confirm("Reset all feeds and settings to defaults? This cannot be undone.")) return;
+    function performConfigReset() {
+        const input = document.getElementById("reset-config-confirm-input");
+        if (input.value.trim() !== "RESET") return; // guard even if the disabled check was bypassed
+
+        if (!confirm("Last chance: this erases every feed and setting in this browser, right now. Continue?")) return;
 
         Config.resetToDefaults();
         Config.save();
@@ -569,7 +649,7 @@ const Dialogs = (() => {
             UI.selectFeed(state.feeds[0].url, state.feeds[0].name);
         }
 
-        closeModal("config-modal");
+        closeModal("reset-config-modal");
         Utils.showMessage("Config reset to defaults.", "success");
     }
 
@@ -587,12 +667,15 @@ const Dialogs = (() => {
         saveFeed,
         removeFeed,
         addUrlRow,
+        toggleSelectedFeedProtected,
 
         // Config management
         openConfigManager,
         exportConfig,
         triggerImport,
         handleImportFile,
-        resetConfig
+        openResetConfigModal,
+        updateResetConfigConfirmButton,
+        performConfigReset
     };
 })();

@@ -66,16 +66,28 @@ const Config = (() => {
     };
 
     /**
-     * Normalize a feed entry to { name, url, row, order } format.
+     * Normalize a feed entry to { name, url, row, order, isProtected } format.
      */
     function normalizeFeed(item) {
         if (Array.isArray(item)) {
-            return { name: item[0], url: item[1], row: item[2] !== undefined ? item[2] : DEFAULT_ROW, order: item[3] !== undefined ? item[3] : null };
+            return {
+                name: item[0],
+                url: item[1],
+                row: item[2] !== undefined ? item[2] : DEFAULT_ROW,
+                order: item[3] !== undefined ? item[3] : null,
+                isProtected: !!item[4]
+            };
         }
         if (typeof item === "object" && item.name) {
-            return { name: item.name, url: item.url, row: item.row || DEFAULT_ROW, order: item.order || null };
+            return {
+                name: item.name,
+                url: item.url,
+                row: item.row || DEFAULT_ROW,
+                order: item.order || null,
+                isProtected: !!item.isProtected
+            };
         }
-        return { name: "Unknown", url: "", row: DEFAULT_ROW, order: null };
+        return { name: "Unknown", url: "", row: DEFAULT_ROW, order: null, isProtected: false };
     }
 
     /**
@@ -128,7 +140,7 @@ const Config = (() => {
      */
     function save() {
         const data = {
-            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
+            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order, isProtected: !!f.isProtected })),
             theme: state.currentTheme
         };
         try {
@@ -159,7 +171,7 @@ const Config = (() => {
      */
     function exportConfig() {
         return {
-            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
+            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order, isProtected: !!f.isProtected })),
             theme: state.currentTheme
         };
     }
@@ -202,6 +214,17 @@ const Config = (() => {
         return state.feeds.findIndex(f => f.name === name);
     }
 
+    /**
+     * Toggle the protected flag on a feed by index (protects it from removal).
+     * Returns the new protected state, or null if the index is invalid.
+     */
+    function toggleProtected(index) {
+        if (index === null || index < 0 || index >= state.feeds.length) return null;
+        state.feeds[index].isProtected = !state.feeds[index].isProtected;
+        save();
+        return state.feeds[index].isProtected;
+    }
+
     return {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
@@ -210,6 +233,7 @@ const Config = (() => {
 
         load, save, getState,
         getFeedIndexByName,
+        toggleProtected,
         resetToDefaults,
         exportConfig,
         importConfig

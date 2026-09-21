@@ -8,6 +8,29 @@ const UI = (() => {
     let refreshTimerId = null;
 
     // ========================
+    // Helpers
+    // ========================
+
+    /**
+     * Build the { status, failedUrls } summary for a feed given which of
+     * its source URLs failed to load. Shared by the initial fetch and the
+     * background auto-refresh so the "ok / partial / error" logic lives
+     * in exactly one place.
+     */
+    function summarizeFetchResult(feedUrl, failedUrls) {
+        const totalSources = RSS.parseFeedUrls(feedUrl).length;
+        let status;
+        if (failedUrls.length === 0) {
+            status = "ok";
+        } else if (failedUrls.length < totalSources) {
+            status = "partial";
+        } else {
+            status = "error";
+        }
+        return { status, failedUrls };
+    }
+
+    // ========================
     // Feed Buttons
     // ========================
 
@@ -26,49 +49,56 @@ const UI = (() => {
 
         // Group feeds by row
         const feedsByRow = {};
-        state.feeds.forEach(feed => {
-            const row = feed.row || 1;
-            if (!feedsByRow[row]) feedsByRow[row] = [];
-            feedsByRow[row].push(feed);
-        });
+        for (const feed of state.feeds) {
+            const rowNumber = feed.row || 1;
+            if (!feedsByRow[rowNumber]) feedsByRow[rowNumber] = [];
+            feedsByRow[rowNumber].push(feed);
+        }
 
         // Render rows in order
-        const rowNums = Object.keys(feedsByRow).map(Number).sort((a, b) => a - b);
-        rowNums.forEach(rowNum => {
+        const rowNumbers = Object.keys(feedsByRow).map(Number).sort((a, b) => a - b);
+        for (const rowNumber of rowNumbers) {
             const rowDiv = document.createElement("div");
             rowDiv.className = "feed-row";
 
-            feedsByRow[rowNum].sort((a, b) => (a.order || 1) - (b.order || 1));
-            feedsByRow[rowNum].forEach(feed => {
-                const btn = document.createElement("button");
-                btn.className = "feed-button";
-                btn.title = feed.url;
-
-                const nameSpan = document.createElement("span");
-                nameSpan.textContent = feed.name;
-                btn.appendChild(nameSpan);
-
-                const dot = document.createElement("span");
-                dot.className = "feed-status-dot";
-                const status = state.feedStatus[feed.url];
-                if (status) {
-                    dot.classList.add(`status-${status.status}`);
-                    dot.title = status.failedUrls.length > 0
-                        ? `Failed: ${status.failedUrls.map(RSS.extractDomain).join(", ")}`
-                        : "All sources OK";
-                }
-                btn.appendChild(dot);
-
-                if (feed.url === state.activeFeedUrl) {
-                    btn.classList.add("active");
-                }
-
-                btn.addEventListener("click", () => selectFeed(feed.url, feed.name));
-                rowDiv.appendChild(btn);
-            });
+            const feedsInRow = feedsByRow[rowNumber].slice().sort((a, b) => (a.order || 1) - (b.order || 1));
+            for (const feed of feedsInRow) {
+                rowDiv.appendChild(buildFeedButton(feed, state));
+            }
 
             area.appendChild(rowDiv);
-        });
+        }
+    }
+
+    /**
+     * Build a single feed button element with its status dot.
+     */
+    function buildFeedButton(feed, state) {
+        const btn = document.createElement("button");
+        btn.className = "feed-button";
+        btn.title = feed.url;
+
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = feed.name;
+        btn.appendChild(nameSpan);
+
+        const dot = document.createElement("span");
+        dot.className = "feed-status-dot";
+        const status = state.feedStatus[feed.url];
+        if (status) {
+            dot.classList.add(`status-${status.status}`);
+            dot.title = status.failedUrls.length > 0
+                ? `Failed: ${status.failedUrls.map(RSS.extractDomain).join(", ")}`
+                : "All sources OK";
+        }
+        btn.appendChild(dot);
+
+        if (feed.url === state.activeFeedUrl) {
+            btn.classList.add("active");
+        }
+
+        btn.addEventListener("click", () => selectFeed(feed.url, feed.name));
+        return btn;
     }
 
     /**
@@ -106,11 +136,7 @@ const UI = (() => {
             const { articles, failedUrls } = await RSS.fetchFeedEntries(feedUrl);
             const state = Config.getState();
             state.allArticles[feedUrl] = articles;
-            state.feedStatus[feedUrl] = {
-                status: failedUrls.length === 0 ? "ok"
-                    : failedUrls.length < RSS.parseFeedUrls(feedUrl).length ? "partial" : "error",
-                failedUrls
-            };
+            state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, failedUrls);
             state.currentPage = 1;
 
             renderFeedButtons();
@@ -133,65 +159,63 @@ const UI = (() => {
     }
 
     /**
+     * Given the full article list for a feed, apply the active search
+     * filter (if any) and slice out just the requested page.
+     */
+    function selectPageEntries(entries, searchTerm, pageNumber) {
+        if (!searchTerm) {
+            const totalPages = Math.min(
+                entries.length > 0 ? Math.ceil(entries.length / Config.ARTICLES_PER_PAGE) : 0,
+                Config.MAX_PAGES
+            );
+            const clampedPage = totalPages > 0 ? Math.max(1, Math.min(pageNumber, totalPages)) : 1;
+            const startIdx = (clampedPage - 1) * Config.ARTICLES_PER_PAGE;
+            return {
+                pageNumber: clampedPage,
+                total: entries.length,
+                totalPages,
+                pageEntries: entries.slice(startIdx, startIdx + Config.ARTICLES_PER_PAGE)
+            };
+        }
+
+        const term = searchTerm.toLowerCase();
+        const matches = entries.filter(a =>
+            a.title.toLowerCase().includes(term) ||
+            a.summary.toLowerCase().includes(term)
+        );
+        const totalPages = Math.min(
+            matches.length > 0 ? Math.ceil(matches.length / Config.ARTICLES_PER_PAGE) : 0,
+            Config.MAX_PAGES
+        );
+        const clampedPage = Math.max(1, Math.min(pageNumber, totalPages || 1));
+        const startIdx = (clampedPage - 1) * Config.ARTICLES_PER_PAGE;
+        return {
+            pageNumber: clampedPage,
+            total: matches.length,
+            totalPages,
+            pageEntries: matches.slice(startIdx, startIdx + Config.ARTICLES_PER_PAGE)
+        };
+    }
+
+    /**
      * Display a specific page of articles.
      */
     function displayPage(categoryName, feedUrl, pageNumber) {
         const state = Config.getState();
         const entries = state.allArticles[feedUrl] || [];
-        const totalArticles = entries.length;
-        const totalPages = Math.min(
-            totalArticles > 0 ? Math.ceil(totalArticles / Config.ARTICLES_PER_PAGE) : 0,
-            Config.MAX_PAGES
-        );
-
-        if (totalPages > 0) {
-            pageNumber = Math.max(1, Math.min(pageNumber, totalPages));
-        } else {
-            pageNumber = 1;
-        }
-        state.currentPage = pageNumber;
-
         const searchTerm = state.searchTerm;
 
-        // Filter by search if active
-        let displayEntries;
-        let displayTotal;
-        let displayTotalPages;
-
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            const allFiltered = entries.filter(a =>
-                a.title.toLowerCase().includes(term) ||
-                a.summary.toLowerCase().includes(term)
-            );
-            displayTotal = allFiltered.length;
-            displayTotalPages = Math.min(
-                displayTotal > 0 ? Math.ceil(displayTotal / Config.ARTICLES_PER_PAGE) : 0,
-                Config.MAX_PAGES
-            );
-            pageNumber = Math.max(1, Math.min(pageNumber, displayTotalPages || 1));
-            state.currentPage = pageNumber;
-
-            const fStart = (pageNumber - 1) * Config.ARTICLES_PER_PAGE;
-            const fEnd = fStart + Config.ARTICLES_PER_PAGE;
-            displayEntries = allFiltered.slice(fStart, fEnd);
-        } else {
-            displayTotal = totalArticles;
-            displayTotalPages = totalPages;
-            const startIdx = (pageNumber - 1) * Config.ARTICLES_PER_PAGE;
-            const endIdx = startIdx + Config.ARTICLES_PER_PAGE;
-            displayEntries = entries.slice(startIdx, endIdx);
-        }
+        const { pageNumber: currentPage, total, totalPages, pageEntries } =
+            selectPageEntries(entries, searchTerm, pageNumber);
+        state.currentPage = currentPage;
 
         const articlesArea = document.getElementById("articles-area");
         articlesArea.innerHTML = "";
 
         // Header
-        const pageText = displayTotalPages > 1
-            ? ` (Page ${pageNumber} of ${displayTotalPages})`
-            : "";
+        const pageText = totalPages > 1 ? ` (Page ${currentPage} of ${totalPages})` : "";
         const searchNote = searchTerm
-            ? ` - filtered by "${Utils.escapeHtml(searchTerm)}" (${displayTotal} results)`
+            ? ` - filtered by "${Utils.escapeHtml(searchTerm)}" (${total} results)`
             : "";
 
         const header = document.createElement("div");
@@ -200,7 +224,7 @@ const UI = (() => {
         articlesArea.appendChild(header);
 
         // Articles
-        if (displayEntries.length === 0) {
+        if (pageEntries.length === 0) {
             const noResults = document.createElement("p");
             noResults.className = "placeholder-text";
             noResults.textContent = searchTerm
@@ -209,49 +233,58 @@ const UI = (() => {
             articlesArea.appendChild(noResults);
         }
 
-        displayEntries.forEach(article => {
-            const item = document.createElement("div");
-            item.className = "article-item";
-
-            const headlineRow = document.createElement("div");
-            headlineRow.className = "article-headline-row";
-
-            const headlineLink = document.createElement("a");
-            headlineLink.className = "article-headline";
-            headlineLink.href = article.link || "#";
-            headlineLink.target = "_blank";
-            headlineLink.rel = "noopener noreferrer";
-            headlineLink.innerHTML = Utils.highlightText(article.title, searchTerm);
-            headlineRow.appendChild(headlineLink);
-
-            if (article.sourceDomain) {
-                const badge = document.createElement("span");
-                badge.className = "article-source-badge";
-                badge.textContent = article.sourceDomain;
-                headlineRow.appendChild(badge);
-            }
-
-            item.appendChild(headlineRow);
-
-            if (article.summary) {
-                const summary = document.createElement("div");
-                summary.className = "article-summary";
-                summary.innerHTML = Utils.highlightText(article.summary, searchTerm);
-                item.appendChild(summary);
-            }
-
-            const formattedDate = Utils.formatDate(article.timestamp);
-            if (formattedDate) {
-                const dateDiv = document.createElement("div");
-                dateDiv.className = "article-date";
-                dateDiv.textContent = formattedDate;
-                item.appendChild(dateDiv);
-            }
-
-            articlesArea.appendChild(item);
+        pageEntries.forEach(article => {
+            articlesArea.appendChild(buildArticleElement(article, searchTerm));
         });
 
-        renderPagination(categoryName, feedUrl, pageNumber, displayTotalPages);
+        renderPagination(categoryName, feedUrl, currentPage, totalPages);
+    }
+
+    /**
+     * Build a single article's DOM element: headline link with source
+     * badge, optional summary, and optional date - each with search-term
+     * highlighting where relevant.
+     */
+    function buildArticleElement(article, searchTerm) {
+        const item = document.createElement("div");
+        item.className = "article-item";
+
+        const headlineRow = document.createElement("div");
+        headlineRow.className = "article-headline-row";
+
+        const headlineLink = document.createElement("a");
+        headlineLink.className = "article-headline";
+        headlineLink.href = article.link || "#";
+        headlineLink.target = "_blank";
+        headlineLink.rel = "noopener noreferrer";
+        headlineLink.innerHTML = Utils.highlightText(article.title, searchTerm);
+        headlineRow.appendChild(headlineLink);
+
+        if (article.sourceDomain) {
+            const badge = document.createElement("span");
+            badge.className = "article-source-badge";
+            badge.textContent = article.sourceDomain;
+            headlineRow.appendChild(badge);
+        }
+
+        item.appendChild(headlineRow);
+
+        if (article.summary) {
+            const summary = document.createElement("div");
+            summary.className = "article-summary";
+            summary.innerHTML = Utils.highlightText(article.summary, searchTerm);
+            item.appendChild(summary);
+        }
+
+        const formattedDate = Utils.formatDate(article.timestamp);
+        if (formattedDate) {
+            const dateDiv = document.createElement("div");
+            dateDiv.className = "article-date";
+            dateDiv.textContent = formattedDate;
+            item.appendChild(dateDiv);
+        }
+
+        return item;
     }
 
     /**
@@ -267,13 +300,9 @@ const UI = (() => {
         }
 
         area.classList.remove("hidden");
-
-        const prevBtn = document.createElement("button");
-        prevBtn.className = "page-button";
-        prevBtn.textContent = "\u2190 Prev";
-        prevBtn.disabled = currentPage <= 1;
-        prevBtn.addEventListener("click", () => displayPage(categoryName, feedUrl, currentPage - 1));
-        area.appendChild(prevBtn);
+        area.appendChild(buildPageButton("\u2190 Prev", currentPage <= 1, () =>
+            displayPage(categoryName, feedUrl, currentPage - 1)
+        ));
 
         const maxButtons = 7;
         let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
@@ -283,20 +312,26 @@ const UI = (() => {
         }
 
         for (let i = startPage; i <= endPage; i++) {
-            const pageBtn = document.createElement("button");
-            pageBtn.className = "page-button";
+            const pageBtn = buildPageButton(String(i), false, () => displayPage(categoryName, feedUrl, i));
             if (i === currentPage) pageBtn.classList.add("active");
-            pageBtn.textContent = i;
-            pageBtn.addEventListener("click", () => displayPage(categoryName, feedUrl, i));
             area.appendChild(pageBtn);
         }
 
-        const nextBtn = document.createElement("button");
-        nextBtn.className = "page-button";
-        nextBtn.textContent = "Next \u2192";
-        nextBtn.disabled = currentPage >= totalPages;
-        nextBtn.addEventListener("click", () => displayPage(categoryName, feedUrl, currentPage + 1));
-        area.appendChild(nextBtn);
+        area.appendChild(buildPageButton("Next \u2192", currentPage >= totalPages, () =>
+            displayPage(categoryName, feedUrl, currentPage + 1)
+        ));
+    }
+
+    /**
+     * Build a single pagination button.
+     */
+    function buildPageButton(label, disabled, onClick) {
+        const btn = document.createElement("button");
+        btn.className = "page-button";
+        btn.textContent = label;
+        btn.disabled = disabled;
+        btn.addEventListener("click", onClick);
+        return btn;
     }
 
     /**
@@ -340,24 +375,27 @@ const UI = (() => {
 
     function startAutoRefresh() {
         stopAutoRefresh();
-        refreshTimerId = setInterval(async () => {
-            const state = Config.getState();
-            if (state.activeFeedUrl) {
-                try {
-                    const { articles, failedUrls } = await RSS.fetchFeedEntries(state.activeFeedUrl);
-                    state.allArticles[state.activeFeedUrl] = articles;
-                    state.feedStatus[state.activeFeedUrl] = {
-                        status: failedUrls.length === 0 ? "ok"
-                            : failedUrls.length < RSS.parseFeedUrls(state.activeFeedUrl).length ? "partial" : "error",
-                        failedUrls
-                    };
-                    renderFeedButtons();
-                    displayPage(state.activeFeedName || "Feed", state.activeFeedUrl, state.currentPage);
-                } catch {
-                    // Silent fail on auto-refresh
-                }
-            }
-        }, Config.REFRESH_INTERVAL_MS);
+        refreshTimerId = setInterval(refreshActiveFeedSilently, Config.REFRESH_INTERVAL_MS);
+    }
+
+    /**
+     * Background refresh tick: re-fetch the active feed and re-render,
+     * swallowing errors so a transient network hiccup doesn't surface
+     * as a message the user didn't ask for.
+     */
+    async function refreshActiveFeedSilently() {
+        const state = Config.getState();
+        if (!state.activeFeedUrl) return;
+
+        try {
+            const { articles, failedUrls } = await RSS.fetchFeedEntries(state.activeFeedUrl);
+            state.allArticles[state.activeFeedUrl] = articles;
+            state.feedStatus[state.activeFeedUrl] = summarizeFetchResult(state.activeFeedUrl, failedUrls);
+            renderFeedButtons();
+            displayPage(state.activeFeedName || "Feed", state.activeFeedUrl, state.currentPage);
+        } catch {
+            // Silent fail on auto-refresh
+        }
     }
 
     function stopAutoRefresh() {
@@ -382,6 +420,43 @@ const UI = (() => {
     // Initialization
     // ========================
 
+    /**
+     * Wire up every static button/input in the page to its handler.
+     * Kept as one block so it's easy to see everything the app responds
+     * to at a glance.
+     */
+    function bindEventListeners() {
+        const on = (id, event, handler) => document.getElementById(id).addEventListener(event, handler);
+
+        on("btn-toggle-theme", "click", toggleTheme);
+        on("btn-show-info", "click", () => Dialogs.openModal("info-modal"));
+        on("btn-refresh", "click", manualRefresh);
+
+        const searchInput = document.getElementById("search-input");
+        searchInput.addEventListener("input", onSearchInput);
+        searchInput.addEventListener("keydown", e => {
+            if (e.key === "Enter") onSearchInput();
+        });
+
+        on("btn-manage-feeds", "click", Dialogs.openFeedManager);
+        on("btn-edit-current-feed", "click", Dialogs.openEditCurrentFeed);
+        on("btn-manage-config", "click", Dialogs.openConfigManager);
+
+        on("btn-feed-add", "click", Dialogs.openAddFeed);
+        on("btn-feed-edit", "click", Dialogs.openEditFeed);
+        on("btn-feed-protect", "click", Dialogs.toggleSelectedFeedProtected);
+        on("btn-feed-remove", "click", Dialogs.removeFeed);
+        on("btn-feed-save", "click", Dialogs.saveFeed);
+        on("btn-add-url", "click", () => Dialogs.addUrlRow(""));
+
+        on("btn-export-config", "click", Dialogs.exportConfig);
+        on("btn-import-config", "click", Dialogs.triggerImport);
+        on("config-file-input", "change", Dialogs.handleImportFile);
+        on("btn-reset-config-open", "click", Dialogs.openResetConfigModal);
+        on("reset-config-confirm-input", "input", Dialogs.updateResetConfigConfirmButton);
+        on("btn-reset-config-confirm", "click", Dialogs.performConfigReset);
+    }
+
     function init() {
         Config.load();
         const state = Config.getState();
@@ -389,52 +464,7 @@ const UI = (() => {
         Utils.applyTheme(state.currentTheme);
         Dialogs.initCloseButtons();
         renderFeedButtons();
-
-        // Theme toggle
-        document.getElementById("btn-toggle-theme").addEventListener("click", toggleTheme);
-
-        // Info modal
-        document.getElementById("btn-show-info").addEventListener("click", () =>
-            Dialogs.openModal("info-modal")
-        );
-
-        // Refresh
-        document.getElementById("btn-refresh").addEventListener("click", manualRefresh);
-
-        // Search
-        const searchInput = document.getElementById("search-input");
-        searchInput.addEventListener("input", onSearchInput);
-        searchInput.addEventListener("keydown", e => {
-            if (e.key === "Enter") onSearchInput();
-        });
-
-        // Manage Feeds
-        document.getElementById("btn-manage-feeds").addEventListener("click", Dialogs.openFeedManager);
-
-        // Edit Feed shortcut (edits the currently active feed directly)
-        document.getElementById("btn-edit-current-feed").addEventListener("click", Dialogs.openEditCurrentFeed);
-
-        // Import/Export config modal
-        document.getElementById("btn-manage-config").addEventListener("click", Dialogs.openConfigManager);
-
-        // Feed Manager buttons
-        document.getElementById("btn-feed-add").addEventListener("click", Dialogs.openAddFeed);
-        document.getElementById("btn-feed-edit").addEventListener("click", Dialogs.openEditFeed);
-        document.getElementById("btn-feed-remove").addEventListener("click", Dialogs.removeFeed);
-
-        // Feed Add/Edit save
-        document.getElementById("btn-feed-save").addEventListener("click", Dialogs.saveFeed);
-
-        // Add another URL row in the feed edit modal
-        document.getElementById("btn-add-url").addEventListener("click", () => Dialogs.addUrlRow(""));
-
-        // Config management
-        document.getElementById("btn-export-config").addEventListener("click", Dialogs.exportConfig);
-        document.getElementById("btn-import-config").addEventListener("click", Dialogs.triggerImport);
-        document.getElementById("config-file-input").addEventListener("change", Dialogs.handleImportFile);
-        document.getElementById("btn-reset-config").addEventListener("click", Dialogs.resetConfig);
-
-        // Start auto-refresh
+        bindEventListeners();
         startAutoRefresh();
 
         // Auto-load the 1st feed in the 1st row (sorted by row, then order)

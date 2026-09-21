@@ -49,6 +49,7 @@
             <div class="modal-button-row">
                 <button id="btn-feed-add" class="modal-action-button accent-button">Add Feed</button>
                 <button id="btn-feed-edit" class="modal-action-button">Edit Selected</button>
+                <button id="btn-feed-protect" class="modal-action-button">★ Protect Selected</button>
                 <button id="btn-feed-remove" class="modal-action-button danger-button">Remove Selected</button>
             </div>
             <button class="modal-close-button" data-modal="feed-manager-modal">Close</button>
@@ -94,11 +95,30 @@
                 <button id="btn-export-config" class="modal-action-button">Export Config</button>
                 <button id="btn-import-config" class="modal-action-button">Import Config</button>
             </div>
-            <div class="config-button-group">
-                <button id="btn-reset-config" class="modal-action-button danger-button">Reset Config</button>
+            <div class="form-group">
+                <label class="reset-label">Danger Zone</label>
+                <button id="btn-reset-config-open" class="modal-action-button danger-button">Reset Config</button>
             </div>
             <input type="file" id="config-file-input" accept=".json" class="hidden-file-input">
             <button class="modal-close-button" data-modal="config-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- Reset Config Modal -->
+    <div id="reset-config-modal" class="modal hidden">
+        <div class="modal-content modal-small modal-danger">
+            <span class="close-button" data-modal="reset-config-modal">&times;</span>
+            <h2>Reset Config?</h2>
+            <p class="modal-subtitle">This permanently deletes every feed and setting stored in this browser and restores the defaults. This cannot be undone.</p>
+            <div id="reset-config-stats" class="info-section"></div>
+            <div class="form-group">
+                <label for="reset-config-confirm-input">Type <strong>RESET</strong> to confirm:</label>
+                <input type="text" id="reset-config-confirm-input" autocomplete="off" placeholder="RESET">
+            </div>
+            <div class="modal-button-row">
+                <button id="btn-reset-config-confirm" class="modal-action-button danger-button" disabled>Erase Everything</button>
+                <button class="modal-action-button" data-modal="reset-config-modal">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -121,6 +141,7 @@
                         <li><strong>Add feeds</strong> - provide a name, RSS URL, row (1-10), and order (1-10).</li>
                         <li><strong>Amalgamated feeds</strong> - combine multiple RSS URLs (comma-separated) into one category.</li>
                         <li><strong>Edit &amp; Remove</strong> - modify or delete feeds from the Manage Feeds dialog.</li>
+                        <li><strong>Protect feed</strong> - select a feed and click ★ Protect Selected to guard it against accidental removal. Protected feeds are marked with ★ in the list and must be unprotected before they can be removed.</li>
                         <li><strong>Edit Feed shortcut</strong> - jump straight to editing the currently active feed without opening Manage Feeds first.</li>
                         <li><strong>Rows 1-10</strong> - organize feed buttons into horizontal rows.</li>
                         <li><strong>Order 1-10</strong> - controls the position of a feed within its row. Max 10 feeds per row.</li>
@@ -142,7 +163,7 @@
                     <ul class="info-list">
                         <li><strong>Export Config</strong> - download your feeds and settings as a JSON file.</li>
                         <li><strong>Import Config</strong> - load a previously exported config file.</li>
-                        <li><strong>Reset Config</strong> - restore default feeds and settings.</li>
+                        <li><strong>Reset Config</strong> - found under Danger Zone. Permanently erases every feed and setting in this browser, including protected feeds, and restores the defaults. Requires typing <code>RESET</code> and confirming a second time, since it cannot be undone.</li>
                     </ul>
                 </div>
                 <div class="info-section">
