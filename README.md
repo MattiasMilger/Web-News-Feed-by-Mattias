@@ -20,6 +20,7 @@ Open `index.html` in a modern browser. No build tools or dependencies required.
 - **Live Search** - Filter and highlight articles by keyword in real-time.
 - **Dark / Light Theme** - Toggle between dark and light modes (dark by default).
 - **Auto-Refresh** - Feeds refresh automatically every 5 minutes.
+- **Article Cache** - Loaded feeds are cached (in memory and `localStorage`), so switching feeds or reloading shows articles instantly; stale feeds refresh in the background.
 - **Import/Export** - Export, import, or reset your configuration via JSON files.
 - **Persistent Storage** - All settings saved in your browser's `localStorage`.
 - **Responsive Design** - Works on desktop and mobile devices.
@@ -52,7 +53,7 @@ Web News Feed by Mattias/
 
 1. **Configuration** loads from `localStorage` on startup. If none exists, default feeds (Cyberthreats, AI, IT General) are loaded.
 2. **Feed buttons** are rendered in rows, sorted by each feed's row (1-10) then order (1-10) within that row.
-3. Clicking a feed button fetches the RSS URL through **CORS proxies** (with automatic fallback) since browsers block direct cross-origin requests.
+3. Clicking a feed button shows its cached articles immediately if they are less than 5 minutes old. Otherwise the RSS URLs are fetched through **CORS proxies** (with automatic fallback) since browsers block direct cross-origin requests; cached articles stay on screen while the refresh runs.
 4. The XML response is parsed client-side using `DOMParser`, supporting both RSS 2.0 and Atom formats.
 5. Articles are sorted by publication date (newest first) and displayed with **pagination** (12 per page, max 10 pages).
 6. The **search box** filters articles in real-time and highlights matching text.
@@ -62,8 +63,9 @@ Web News Feed by Mattias/
 ## Technical Notes
 
 - **No external dependencies** - pure vanilla HTML, CSS, and JavaScript.
-- **CORS Proxies** - Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`).
-- **localStorage** - All configuration persists in the browser. Clearing browser data will reset feeds to defaults.
+- **CORS Proxies** - Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`, and others). The proxy that worked last is tried first, and a slow proxy is raced by the next one after 4 seconds rather than waited on.
+- **Caching** - Completed fetches are kept per feed for 5 minutes (fresh) and up to 24 hours (shown while refreshing). A feed switched away from mid-load keeps loading and is cached when it finishes. If a source in an amalgamated feed fails, its previously cached articles are kept.
+- **localStorage** - Configuration (`newsfeed_config`) and the article cache (`newsfeed_cache`) persist in the browser. Clearing browser data will reset feeds to defaults.
 
 ## Browser Support
 

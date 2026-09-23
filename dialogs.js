@@ -389,8 +389,10 @@ const Dialogs = (() => {
         const saveBtn = document.getElementById("btn-feed-save");
         saveBtn.disabled = true;
         saveBtn.textContent = "Validating...";
+        let validated = null; // the fetch result is reused to seed the cache below
         try {
-            const { failedUrls } = await RSS.fetchFeedEntries(url);
+            validated = await RSS.fetchFeedEntries(url);
+            const { failedUrls } = validated;
             if (failedUrls.length > 0) {
                 const total = RSS.parseFeedUrls(url).length;
                 Utils.showMessage(
@@ -441,8 +443,7 @@ const Dialogs = (() => {
             state.feeds[editingFeedIndex] = { name, url, row: rowNum, order: orderNum };
 
             if (oldUrl !== url) {
-                delete state.allArticles[oldUrl];
-                delete state.allArticles[url];
+                Config.dropCache(oldUrl);
                 if (state.activeFeedUrl === oldUrl) {
                     state.activeFeedUrl = url;
                     state.activeFeedName = name;
@@ -460,6 +461,9 @@ const Dialogs = (() => {
                 : `Feed '${name}' added to Row ${rowNum}.`;
             Utils.showMessage(msg, "success");
         }
+
+        // Reuse the validation fetch so the feed shows instantly instead of loading twice
+        if (validated) UI.storeFeedResult(url, validated.articles, validated.failedUrls);
 
         Config.save();
         closeModal("feed-edit-modal");
@@ -496,7 +500,7 @@ const Dialogs = (() => {
 
         if (!confirm(`Remove '${feedName}'?`)) return;
 
-        delete state.allArticles[removedFeed.url];
+        Config.dropCache(removedFeed.url);
         state.feeds.splice(idx, 1);
         selectedFeedIndex = null;
         Config.save();

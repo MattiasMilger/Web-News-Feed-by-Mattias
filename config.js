@@ -19,6 +19,12 @@ const Config = (() => {
     const FEED_FETCH_TIMEOUT = 15000; // 15 seconds
     const REFRESH_INTERVAL_MS = 300000; // 5 minutes
 
+    // Article cache: kept in memory and mirrored to localStorage so feeds
+    // appear instantly after switching feeds or reloading the page.
+    const CACHE_STORAGE_KEY = "newsfeed_cache";
+    const CACHE_TTL_MS = 300000;               // cached articles count as "fresh" for 5 minutes
+    const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // persisted entries older than this are discarded on load
+
     // Default feeds (from standard-config.json)
     const DEFAULT_FEEDS = [
         {
@@ -59,7 +65,8 @@ const Config = (() => {
         currentTheme: "dark",
         activeFeedUrl: null,
         activeFeedName: null,
-        allArticles: {},
+        allArticles: {},   // feedUrl -> articles (may briefly hold partial results while loading)
+        fetchedAt: {},     // feedUrl -> timestamp of the last completed fetch (the real "cached" marker)
         feedStatus: {},
         currentPage: 1,
         searchTerm: ""
@@ -132,6 +139,7 @@ const Config = (() => {
             }
         });
 
+        loadCache();
         save();
     }
 
@@ -161,9 +169,105 @@ const Config = (() => {
         state.activeFeedUrl = null;
         state.activeFeedName = null;
         state.allArticles = {};
+        state.fetchedAt = {};
         state.feedStatus = {};
         state.currentPage = 1;
         state.searchTerm = "";
+        try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    // ========================
+    // Article cache
+    // ========================
+
+    /**
+     * Restore persisted articles for feeds that still exist. Anything
+     * unreadable, unknown or older than CACHE_MAX_AGE_MS is ignored.
+     */
+    function loadCache() {
+        try {
+            const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+            if (!raw) return;
+            const stored = JSON.parse(raw);
+            const known = new Set(state.feeds.map(f => f.url));
+            const now = Date.now();
+
+            for (const [url, entry] of Object.entries(stored)) {
+                if (!known.has(url) || !entry || !Array.isArray(entry.articles)) continue;
+                if (typeof entry.fetchedAt !== "number" || now - entry.fetchedAt > CACHE_MAX_AGE_MS) continue;
+                state.allArticles[url] = entry.articles;
+                state.fetchedAt[url] = entry.fetchedAt;
+            }
+        } catch (e) {
+            console.warn("Config: Failed to read article cache, clearing it.");
+            try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch (e2) { /* ignore */ }
+        }
+    }
+
+    /**
+     * Mirror completed fetches to localStorage. If the browser's quota is
+     * hit, the oldest feeds are dropped until the rest fit. Only complete
+     * results are persisted - partial results never get a fetchedAt.
+     */
+    function writeCache() {
+        const known = new Set(state.feeds.map(f => f.url));
+        const urls = Object.keys(state.fetchedAt)
+            .filter(url => known.has(url) && Array.isArray(state.allArticles[url]))
+            .sort((a, b) => state.fetchedAt[b] - state.fetchedAt[a]); // newest first
+
+        while (urls.length > 0) {
+            const data = {};
+            urls.forEach(url => {
+                data[url] = { fetchedAt: state.fetchedAt[url], articles: state.allArticles[url] };
+            });
+            try {
+                localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(data));
+                return;
+            } catch (e) {
+                urls.pop(); // quota exceeded: drop the oldest and retry
+            }
+        }
+        try { localStorage.removeItem(CACHE_STORAGE_KEY); } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * Store a completed fetch for a feed.
+     */
+    function setCache(feedUrl, articles) {
+        state.allArticles[feedUrl] = articles;
+        state.fetchedAt[feedUrl] = Date.now();
+        writeCache();
+    }
+
+    /**
+     * Forget everything cached for a feed (used when its URL changes or it is removed).
+     */
+    function dropCache(feedUrl) {
+        delete state.allArticles[feedUrl];
+        delete state.fetchedAt[feedUrl];
+        writeCache();
+    }
+
+    /**
+     * True if the feed has a completed fetch newer than CACHE_TTL_MS.
+     */
+    function isCacheFresh(feedUrl) {
+        const fetchedAt = state.fetchedAt[feedUrl];
+        return typeof fetchedAt === "number" && Date.now() - fetchedAt < CACHE_TTL_MS;
+    }
+
+    /**
+     * Drop cached entries for feeds that are no longer configured.
+     */
+    function pruneCache() {
+        const known = new Set(state.feeds.map(f => f.url));
+        for (const url of Object.keys(state.allArticles)) {
+            if (!known.has(url)) {
+                delete state.allArticles[url];
+                delete state.fetchedAt[url];
+            }
+        }
+        writeCache();
     }
 
     /**
@@ -197,10 +301,10 @@ const Config = (() => {
         state.currentTheme = data.theme === "light" ? "light" : "dark";
         state.activeFeedUrl = null;
         state.activeFeedName = null;
-        state.allArticles = {};
         state.feedStatus = {};
         state.currentPage = 1;
         state.searchTerm = "";
+        pruneCache(); // keep cached articles for feeds that survive the import
 
         save();
         return true;
@@ -228,10 +332,11 @@ const Config = (() => {
     return {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
-        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS,
+        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS,
         DEFAULT_FEEDS,
 
         load, save, getState,
+        setCache, dropCache, isCacheFresh,
         getFeedIndexByName,
         toggleProtected,
         resetToDefaults,

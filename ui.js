@@ -6,6 +6,7 @@
 
 const UI = (() => {
     let refreshTimerId = null;
+    const inflight = new Map(); // feedUrl -> Promise of the fetch currently running for it
 
     // ========================
     // Helpers
@@ -102,7 +103,8 @@ const UI = (() => {
     }
 
     /**
-     * Select a feed: fetch and display its articles.
+     * Select a feed. Fresh cached articles are shown straight away with
+     * no network request; stale or missing ones are (re)loaded.
      */
     async function selectFeed(feedUrl, feedName) {
         const state = Config.getState();
@@ -110,53 +112,149 @@ const UI = (() => {
         state.activeFeedName = feedName;
         state.currentPage = 1;
 
-        // Update active button styling
         document.querySelectorAll(".feed-button").forEach(btn => {
             btn.classList.toggle("active", btn.title === feedUrl);
         });
 
-        await fetchAndDisplayNews(feedUrl, feedName);
+        if (Config.isCacheFresh(feedUrl)) {
+            paintFeed(feedUrl, feedName, 1);
+            return;
+        }
+        await refreshFeed(feedUrl);
+    }
+
+    // ========================
+    // Feed Loading & Cache
+    // ========================
+
+    function isActive(feedUrl) {
+        return Config.getState().activeFeedUrl === feedUrl;
+    }
+
+    /**
+     * Record a completed fetch: cache the articles and update the status dot.
+     * Exposed so the Add/Edit dialog can reuse its validation fetch.
+     */
+    function storeFeedResult(feedUrl, articles, failedUrls) {
+        const state = Config.getState();
+        Config.setCache(feedUrl, articles);
+        state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, failedUrls);
+    }
+
+    /**
+     * Fetch a feed into the cache. Never throws, and never touches the
+     * page beyond progressive rendering, so it is safe to leave running
+     * after the user switches to another feed - the result lands in the
+     * cache and is there when they come back. Concurrent calls for the
+     * same feed share one request.
+     *
+     * Resolves to { ok, failedUrls } or { ok: false, error }.
+     */
+    function loadFeed(feedUrl) {
+        if (inflight.has(feedUrl)) return inflight.get(feedUrl);
+
+        const state = Config.getState();
+        const previous = state.allArticles[feedUrl];   // stale cache, if any
+        const promise = (async () => {
+            try {
+                const { articles, failedUrls } = await RSS.fetchFeedEntries(feedUrl, {
+                    // With no cache to show, render sources as they arrive
+                    // instead of waiting for the slowest one.
+                    onProgress: previous ? null : partial => {
+                        state.allArticles[feedUrl] = partial;
+                        if (isActive(feedUrl)) paintFeed(feedUrl, state.activeFeedName, 1);
+                    }
+                });
+
+                // A source that failed this time keeps its previously cached articles
+                const failed = new Set(failedUrls);
+                const carried = (previous || []).filter(a => failed.has(a.sourceUrl));
+                const merged = carried.length === 0
+                    ? articles
+                    : articles.concat(carried)
+                        .sort((a, b) => b.timestamp - a.timestamp)
+                        .slice(0, Config.MAX_ENTRIES_PER_FEED);
+
+                storeFeedResult(feedUrl, merged, failedUrls);
+                return { ok: true, failedUrls };
+            } catch (error) {
+                state.feedStatus[feedUrl] = { status: "error", failedUrls: RSS.parseFeedUrls(feedUrl) };
+                return { ok: false, error };
+            } finally {
+                inflight.delete(feedUrl);
+            }
+        })();
+
+        inflight.set(feedUrl, promise);
+        return promise;
+    }
+
+    /**
+     * Load a feed and update the page when it finishes - but only if it is
+     * still the active feed. Pass { silent: true } for background refreshes
+     * (no "updating..." hint, no messages).
+     */
+    async function refreshFeed(feedUrl, { silent = false } = {}) {
+        const state = Config.getState();
+        const promise = loadFeed(feedUrl);
+        if (!silent && isActive(feedUrl)) {
+            paintFeed(feedUrl, state.activeFeedName, state.currentPage);
+        }
+
+        const result = await promise;
+        renderFeedButtons();
+        if (!isActive(feedUrl)) return result;
+
+        const hasArticles = !!state.allArticles[feedUrl];
+        if (hasArticles) {
+            displayPage(state.activeFeedName || "Feed", feedUrl, state.currentPage);
+        } else {
+            showLoadFailure();
+        }
+
+        if (!silent && !result.reported) {
+            result.reported = true; // several callers can await the same request
+            if (!result.ok) {
+                const prefix = hasArticles ? "Couldn't refresh - showing cached articles.\n" : "Error fetching RSS: ";
+                Utils.showMessage(prefix + result.error.message, "error", 8000);
+            } else if (result.failedUrls.length > 0) {
+                Utils.showMessage(
+                    `${result.failedUrls.length} source(s) failed: ${result.failedUrls.map(RSS.extractDomain).join(", ")}`,
+                    "warning", 6000
+                );
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Show a feed from whatever we have: its articles (cached or partial),
+     * or a loading placeholder if there is nothing yet.
+     */
+    function paintFeed(feedUrl, feedName, pageNumber) {
+        if (Config.getState().allArticles[feedUrl]) {
+            displayPage(feedName || "Feed", feedUrl, pageNumber || 1);
+        } else {
+            document.getElementById("articles-area").innerHTML = '<p class="loading-text">Fetching news...</p>';
+            hidePagination();
+        }
+    }
+
+    function showLoadFailure() {
+        document.getElementById("articles-area").innerHTML =
+            '<p class="placeholder-text">Failed to load feed. Check the URL or try again later.</p>';
+        hidePagination();
+    }
+
+    function hidePagination() {
+        const area = document.getElementById("pagination-area");
+        area.classList.add("hidden");
+        area.innerHTML = "";
     }
 
     // ========================
     // Article Display
     // ========================
-
-    /**
-     * Fetch articles and display the first page.
-     */
-    async function fetchAndDisplayNews(feedUrl, categoryName) {
-        const articlesArea = document.getElementById("articles-area");
-        const paginationArea = document.getElementById("pagination-area");
-
-        articlesArea.innerHTML = '<p class="loading-text">Fetching news...</p>';
-        paginationArea.classList.add("hidden");
-
-        try {
-            const { articles, failedUrls } = await RSS.fetchFeedEntries(feedUrl);
-            const state = Config.getState();
-            state.allArticles[feedUrl] = articles;
-            state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, failedUrls);
-            state.currentPage = 1;
-
-            renderFeedButtons();
-            displayPage(categoryName, feedUrl, 1);
-
-            if (failedUrls.length > 0) {
-                Utils.showMessage(
-                    `${failedUrls.length} source(s) failed: ${failedUrls.map(RSS.extractDomain).join(", ")}`,
-                    "warning", 6000
-                );
-            }
-        } catch (err) {
-            const state = Config.getState();
-            state.feedStatus[feedUrl] = { status: "error", failedUrls: RSS.parseFeedUrls(feedUrl) };
-            renderFeedButtons();
-            articlesArea.innerHTML = "";
-            Utils.showMessage(`Error fetching RSS: ${err.message}`, "error", 8000);
-            articlesArea.innerHTML = '<p class="placeholder-text">Failed to load feed. Check the URL or try again later.</p>';
-        }
-    }
 
     /**
      * Given the full article list for a feed, apply the active search
@@ -220,7 +318,8 @@ const UI = (() => {
 
         const header = document.createElement("div");
         header.className = "articles-header";
-        header.innerHTML = `--- Latest ${Utils.escapeHtml(categoryName)} Headlines${pageText} ---${searchNote}`;
+        const updatingNote = inflight.has(feedUrl) ? " - updating..." : "";
+        header.innerHTML = `--- Latest ${Utils.escapeHtml(categoryName)} Headlines${pageText} ---${searchNote}${updatingNote}`;
         articlesArea.appendChild(header);
 
         // Articles
@@ -340,8 +439,7 @@ const UI = (() => {
     function clearArticles() {
         document.getElementById("articles-area").innerHTML =
             '<p class="placeholder-text">Select a feed to view articles.</p>';
-        document.getElementById("pagination-area").classList.add("hidden");
-        document.getElementById("pagination-area").innerHTML = "";
+        hidePagination();
     }
 
     // ========================
@@ -365,12 +463,15 @@ const UI = (() => {
 
     async function manualRefresh() {
         const state = Config.getState();
-        if (!state.activeFeedUrl) {
+        const feedUrl = state.activeFeedUrl;
+        if (!feedUrl) {
             Utils.showMessage("No active feed to refresh.", "info");
             return;
         }
-        await fetchAndDisplayNews(state.activeFeedUrl, state.activeFeedName || "Feed");
-        Utils.showMessage("Feed refreshed.", "success", 3000);
+        const result = await refreshFeed(feedUrl);
+        if (result.ok && result.failedUrls.length === 0 && isActive(feedUrl)) {
+            Utils.showMessage("Feed refreshed.", "success", 3000);
+        }
     }
 
     function startAutoRefresh() {
@@ -379,23 +480,14 @@ const UI = (() => {
     }
 
     /**
-     * Background refresh tick: re-fetch the active feed and re-render,
-     * swallowing errors so a transient network hiccup doesn't surface
-     * as a message the user didn't ask for.
+     * Background refresh tick: reload the active feed without messages,
+     * so a transient network hiccup doesn't surface as something the
+     * user didn't ask for. On failure the cached articles stay on screen.
      */
-    async function refreshActiveFeedSilently() {
+    function refreshActiveFeedSilently() {
         const state = Config.getState();
         if (!state.activeFeedUrl) return;
-
-        try {
-            const { articles, failedUrls } = await RSS.fetchFeedEntries(state.activeFeedUrl);
-            state.allArticles[state.activeFeedUrl] = articles;
-            state.feedStatus[state.activeFeedUrl] = summarizeFetchResult(state.activeFeedUrl, failedUrls);
-            renderFeedButtons();
-            displayPage(state.activeFeedName || "Feed", state.activeFeedUrl, state.currentPage);
-        } catch {
-            // Silent fail on auto-refresh
-        }
+        refreshFeed(state.activeFeedUrl, { silent: true });
     }
 
     function stopAutoRefresh() {
@@ -481,6 +573,7 @@ const UI = (() => {
     return {
         renderFeedButtons,
         selectFeed,
+        storeFeedResult,
         clearArticles,
         displayPage
     };

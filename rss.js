@@ -55,12 +55,14 @@ const RSS = (() => {
         ]
         : PUBLIC_CORS_PROXIES;
 
-    const FETCH_TIMEOUT = 15000; // 15 seconds per proxy attempt
-    const PROXY_COOLDOWN_MS = 60000; // skip a proxy for 1 minute after it rate-limits us
-    const STAGGER_DELAY_MS = 350; // delay between starting each URL's fetch in an amalgamated feed
+    const FETCH_TIMEOUT = 12000;      // hard limit per proxy attempt
+    const HEDGE_DELAY_MS = 4000;      // if a proxy hasn't answered by then, start the next one in parallel
+    const PROXY_COOLDOWN_MS = 60000;  // skip a proxy for 1 minute after it rate-limits us
+    const STAGGER_DELAY_MS = 350;     // delay between starting each URL's fetch in an amalgamated feed
 
-    // Per-proxy cooldown tracking (module-level, resets on page reload).
+    // Module-level proxy bookkeeping (resets on page reload).
     const proxyCooldownUntil = {};
+    let preferredProxyName = null;    // the proxy that most recently succeeded
 
     function isProxyOnCooldown(name) {
         return Date.now() < (proxyCooldownUntil[name] || 0);
@@ -72,6 +74,21 @@ const RSS = (() => {
 
     function delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Proxies to try, best first: self-hosted, then whichever public proxy
+     * worked last time, then the rest. Proxies on cooldown are skipped
+     * unless every proxy is cooling down (better to try than give up).
+     */
+    function orderedProxies() {
+        const available = CORS_PROXIES.filter(p => !isProxyOnCooldown(p.name));
+        const list = available.length > 0 ? available : CORS_PROXIES;
+        const rank = p => p.name === "self-hosted" ? 0 : p.name === preferredProxyName ? 1 : 2;
+        return list
+            .map((proxy, i) => ({ proxy, i }))
+            .sort((a, b) => rank(a.proxy) - rank(b.proxy) || a.i - b.i)
+            .map(item => item.proxy);
     }
 
     /**
@@ -188,27 +205,27 @@ const RSS = (() => {
     }
 
     /**
-     * Create an AbortController with a timeout.
-     * Compatible fallback for browsers without AbortSignal.timeout().
+     * Fetch a URL through one proxy. Returns response text or throws.
+     * Aborts on its own timeout or when `outerSignal` fires (used to
+     * cancel the losers once another proxy has already won the race).
+     * Throws with `isRateLimited: true` on HTTP 429 so callers can back off.
      */
-    function createTimeoutSignal(ms) {
+    async function fetchWithProxy(proxy, url, outerSignal) {
         const controller = new AbortController();
-        const timerId = setTimeout(() => controller.abort(), ms);
-        return { signal: controller.signal, clear: () => clearTimeout(timerId) };
-    }
+        const abortFromOuter = () => controller.abort();
+        if (outerSignal) {
+            if (outerSignal.aborted) controller.abort();
+            else outerSignal.addEventListener("abort", abortFromOuter, { once: true });
+        }
 
-    /**
-     * Fetch with a single proxy. Returns response text or throws.
-     * Throws with `isRateLimited: true` when the proxy itself signals
-     * throttling (HTTP 429), so callers can back off from it.
-     */
-    async function fetchWithProxy(proxy, url) {
-        const proxyUrl = proxy.build(url);
-        const timeout = createTimeoutSignal(FETCH_TIMEOUT);
+        let timedOut = false;
+        const timerId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, FETCH_TIMEOUT);
 
         try {
-            const response = await fetch(proxyUrl, { signal: timeout.signal });
-            timeout.clear();
+            const response = await fetch(proxy.build(url), { signal: controller.signal });
 
             if (!response.ok) {
                 const err = new Error(`HTTP ${response.status}`);
@@ -229,94 +246,146 @@ const RSS = (() => {
                 }
             }
 
-            // Sanity check: response should look like XML
+            // Sanity check: some proxies return JSON wrappers or HTML error pages
             const trimmed = text.trimStart();
-            if (!trimmed.startsWith("<?xml") && !trimmed.startsWith("<rss") &&
-                !trimmed.startsWith("<feed") && !trimmed.startsWith("<!DOCTYPE")) {
-                // Some proxies return JSON wrappers or error pages
-                if (trimmed.startsWith("{") || trimmed.startsWith("<html")) {
-                    throw new Error("Proxy returned non-XML response");
-                }
+            if (trimmed.startsWith("{") || trimmed.startsWith("<html")) {
+                throw new Error("Proxy returned non-XML response");
             }
 
             return text;
         } catch (err) {
-            timeout.clear();
             if (err.name === "AbortError") {
-                throw new Error("Request timed out");
+                throw new Error(timedOut ? "Request timed out" : "Cancelled");
             }
             throw err;
+        } finally {
+            clearTimeout(timerId);
+            if (outerSignal) outerSignal.removeEventListener("abort", abortFromOuter);
         }
     }
 
     /**
-     * Fetch a single RSS feed URL, trying multiple CORS proxies.
-     * Proxies currently on cooldown (recently rate-limited) are skipped
-     * unless every proxy is cooling down, in which case we try anyway
-     * rather than give up outright.
+     * Fetch a single RSS feed URL through the CORS proxies.
+     *
+     * Proxies are tried best-first, but a slow proxy no longer blocks the
+     * rest: if it hasn't answered after HEDGE_DELAY_MS the next proxy is
+     * started alongside it, and a fast failure starts the next one
+     * immediately. The first proxy to return valid XML wins and the
+     * others are cancelled.
+     *
      * Returns an array of article objects.
      */
-    async function fetchSingleFeed(url) {
-        const errors = [];
-        const available = CORS_PROXIES.filter(p => !isProxyOnCooldown(p.name));
-        const proxiesToTry = available.length > 0 ? available : CORS_PROXIES;
+    function fetchSingleFeed(url) {
+        const proxies = orderedProxies();
 
-        for (const proxy of proxiesToTry) {
-            try {
-                const text = await fetchWithProxy(proxy, url);
-                return parseXml(text, url);
-            } catch (err) {
-                errors.push(`${proxy.name}: ${err.message}`);
-                if (err.isRateLimited) {
-                    markProxyCooldown(proxy.name, PROXY_COOLDOWN_MS);
+        return new Promise((resolve, reject) => {
+            const controller = new AbortController();
+            const errors = [];
+            let nextIndex = 0;
+            let pending = 0;
+            let done = false;
+            let hedgeTimer = null;
+
+            function finish(settle, value) {
+                if (done) return;
+                done = true;
+                clearTimeout(hedgeTimer);
+                controller.abort(); // cancel any attempts still in flight
+                settle(value);
+            }
+
+            function launchNext() {
+                clearTimeout(hedgeTimer);
+                if (done || nextIndex >= proxies.length) return;
+
+                const proxy = proxies[nextIndex++];
+                pending++;
+
+                fetchWithProxy(proxy, url, controller.signal)
+                    .then(text => {
+                        const articles = parseXml(text, url); // bad XML counts as a failure below
+                        preferredProxyName = proxy.name;
+                        finish(resolve, articles);
+                    })
+                    .catch(err => {
+                        if (done) return;
+                        pending--;
+                        errors.push(`${proxy.name}: ${err.message}`);
+                        if (err.isRateLimited) markProxyCooldown(proxy.name, PROXY_COOLDOWN_MS);
+
+                        if (nextIndex < proxies.length) {
+                            launchNext();
+                        } else if (pending === 0) {
+                            finish(reject, new Error(
+                                `All proxies failed for ${extractDomain(url)}: ${errors.join(", ")}`
+                            ));
+                        }
+                    });
+
+                if (nextIndex < proxies.length) {
+                    hedgeTimer = setTimeout(launchNext, HEDGE_DELAY_MS);
                 }
             }
-        }
 
-        throw new Error(`All proxies failed for ${extractDomain(url)}: ${errors.join(", ")}`);
+            launchNext();
+        });
+    }
+
+    function sortAndTrim(articles, maxEntries) {
+        return articles.slice().sort((a, b) => b.timestamp - a.timestamp).slice(0, maxEntries);
     }
 
     /**
      * Fetch all feeds for a given feedUrl string (may be comma-separated
-     * for amalgamated feeds). Returns merged, sorted array of articles.
+     * for amalgamated feeds). Returns { articles, failedUrls } with the
+     * articles merged and sorted newest first.
+     *
+     * Options:
+     *   maxEntries  - cap on returned articles (default Config.MAX_ENTRIES_PER_FEED)
+     *   onProgress  - called with the merged, sorted articles so far each
+     *                 time one source finishes, so the UI can show results
+     *                 without waiting for the slowest source.
+     *
      * Each URL's fetch is staggered slightly so an amalgamated feed
      * doesn't fire a burst of simultaneous proxy requests that trips a
      * per-second rate limit.
      */
-    async function fetchFeedEntries(feedUrl, maxEntries) {
-        maxEntries = maxEntries || Config.MAX_ENTRIES_PER_FEED;
+    async function fetchFeedEntries(feedUrl, options = {}) {
+        const maxEntries = options.maxEntries || Config.MAX_ENTRIES_PER_FEED;
+        const onProgress = options.onProgress;
         const urls = parseFeedUrls(feedUrl);
 
         if (urls.length === 0) {
             throw new Error("No valid URLs to fetch");
         }
 
-        const results = await Promise.allSettled(urls.map(async (u, i) => {
+        let collected = [];
+        const failed = new Set();
+
+        await Promise.all(urls.map(async (u, i) => {
             if (i > 0) {
                 await delay(i * STAGGER_DELAY_MS);
             }
-            return fetchSingleFeed(u);
+
+            let articles;
+            try {
+                articles = await fetchSingleFeed(u);
+            } catch {
+                failed.add(u);
+                return;
+            }
+
+            collected = collected.concat(articles);
+            if (onProgress) onProgress(sortAndTrim(collected, maxEntries));
         }));
 
-        let allArticles = [];
-        const failedUrls = [];
+        const failedUrls = urls.filter(u => failed.has(u));
 
-        results.forEach((result, i) => {
-            if (result.status === "fulfilled") {
-                allArticles = allArticles.concat(result.value);
-            } else {
-                failedUrls.push(urls[i]);
-            }
-        });
-
-        if (allArticles.length === 0 && failedUrls.length > 0) {
+        if (collected.length === 0 && failedUrls.length > 0) {
             throw new Error("Failed to fetch feeds:\n" + failedUrls.map(extractDomain).join("\n"));
         }
 
-        // Sort newest first
-        allArticles.sort((a, b) => b.timestamp - a.timestamp);
-
-        return { articles: allArticles.slice(0, maxEntries), failedUrls };
+        return { articles: sortAndTrim(collected, maxEntries), failedUrls };
     }
 
     /**
