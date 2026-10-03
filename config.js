@@ -1,6 +1,7 @@
 /**
  * config.js - Configuration and state management
  * Stores a single feed list and theme preference in localStorage.
+ * Owns the article cache (single owner, single localStorage key).
  * Supports export/import/reset of configuration.
  */
 
@@ -67,7 +68,7 @@ const Config = (() => {
         activeFeedName: null,
         allArticles: {},   // feedUrl -> articles (may briefly hold partial results while loading)
         fetchedAt: {},     // feedUrl -> timestamp of the last completed fetch (the real "cached" marker)
-        feedStatus: {},
+        feedStatus: {},    // feedUrl -> { status, failedUrls }
         currentPage: 1,
         searchTerm: ""
     };
@@ -181,8 +182,8 @@ const Config = (() => {
     // ========================
 
     /**
-     * Restore persisted articles for feeds that still exist. Anything
-     * unreadable, unknown or older than CACHE_MAX_AGE_MS is ignored.
+     * Restore persisted articles (and status dots) for feeds that still exist.
+     * Anything unreadable, unknown or older than CACHE_MAX_AGE_MS is ignored.
      */
     function loadCache() {
         try {
@@ -197,6 +198,9 @@ const Config = (() => {
                 if (typeof entry.fetchedAt !== "number" || now - entry.fetchedAt > CACHE_MAX_AGE_MS) continue;
                 state.allArticles[url] = entry.articles;
                 state.fetchedAt[url] = entry.fetchedAt;
+                if (entry.status && typeof entry.status.status === "string") {
+                    state.feedStatus[url] = entry.status; // status dots show instantly
+                }
             }
         } catch (e) {
             console.warn("Config: Failed to read article cache, clearing it.");
@@ -218,7 +222,11 @@ const Config = (() => {
         while (urls.length > 0) {
             const data = {};
             urls.forEach(url => {
-                data[url] = { fetchedAt: state.fetchedAt[url], articles: state.allArticles[url] };
+                data[url] = {
+                    fetchedAt: state.fetchedAt[url],
+                    status: state.feedStatus[url] || null,
+                    articles: state.allArticles[url]
+                };
             });
             try {
                 localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(data));
@@ -231,11 +239,12 @@ const Config = (() => {
     }
 
     /**
-     * Store a completed fetch for a feed.
+     * Store a completed fetch for a feed (articles + status dot info).
      */
-    function setCache(feedUrl, articles) {
+    function setCache(feedUrl, articles, status) {
         state.allArticles[feedUrl] = articles;
         state.fetchedAt[feedUrl] = Date.now();
+        if (status) state.feedStatus[feedUrl] = status;
         writeCache();
     }
 
@@ -245,6 +254,7 @@ const Config = (() => {
     function dropCache(feedUrl) {
         delete state.allArticles[feedUrl];
         delete state.fetchedAt[feedUrl];
+        delete state.feedStatus[feedUrl];
         writeCache();
     }
 
@@ -265,6 +275,7 @@ const Config = (() => {
             if (!known.has(url)) {
                 delete state.allArticles[url];
                 delete state.fetchedAt[url];
+                delete state.feedStatus[url];
             }
         }
         writeCache();
@@ -301,10 +312,9 @@ const Config = (() => {
         state.currentTheme = data.theme === "light" ? "light" : "dark";
         state.activeFeedUrl = null;
         state.activeFeedName = null;
-        state.feedStatus = {};
         state.currentPage = 1;
         state.searchTerm = "";
-        pruneCache(); // keep cached articles for feeds that survive the import
+        pruneCache(); // keep cached articles (and status dots) for feeds that survive the import
 
         save();
         return true;
@@ -336,7 +346,7 @@ const Config = (() => {
         DEFAULT_FEEDS,
 
         load, save, getState,
-        setCache, dropCache, isCacheFresh,
+        setCache, dropCache, isCacheFresh, pruneCache,
         getFeedIndexByName,
         toggleProtected,
         resetToDefaults,

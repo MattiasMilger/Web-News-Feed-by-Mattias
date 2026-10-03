@@ -10,27 +10,22 @@
  *    fetch updates them if older than CACHE_TTL_MS.
  *  - In-flight requests are shared (a click and a prefetch for the same feed
  *    never double-fetch).
- *  - After the active feed is shown, the other feeds are prefetched slowly in
- *    the background (strictly one request at a time) so switching is fast
- *    without ever hammering the CORS proxies.
+ *  - As soon as the selected feed has loaded, ALL other stale feeds load in
+ *    the background (PREFETCH_WORKERS at a time, one proxy request per worker)
+ *    so switching feeds is instant without hammering the CORS proxies.
+ *  - The article cache lives in Config (single owner, single localStorage key).
  *  - A load token stops a slow response from overwriting a newer selection.
  */
 
 const UI = (() => {
     let refreshTimerId = null;
 
-    const CACHE_KEY = "newsfeed_cache";
-    const CACHE_TTL_MS = 120000;       // cached articles count as fresh for 2 minutes
-    const CACHE_PERSIST_LIMIT = 60;    // articles persisted per feed
-    const PREFETCH_START_DELAY_MS = 1500;  // let the clicked feed get going first
-    const PREFETCH_GAP_MS = 300;           // pause between background fetches
-    const PREFETCH_WORKERS = 2;            // each worker uses one proxy request at a time
+    const PREFETCH_GAP_MS = 100;           // tiny pause between background fetches
+    const PREFETCH_WORKERS = 4;            // feeds loading at once at startup
 
-    const fetchedAt = {};              // feedUrl -> timestamp of last successful fetch
     const inflight = new Map();        // feedUrl -> { promise, listeners, latest }
     let loadToken = 0;                 // incremented on every feed selection
-    let prefetchRun = 0;               // lets a newer prefetch run supersede an older one
-    let saveCacheTimer = null;
+    let prefetchRunning = false;       // only one prefetch pass at a time
 
     // ========================
     // Helpers
@@ -61,58 +56,35 @@ const UI = (() => {
 
     function isFresh(feedUrl) {
         const state = Config.getState();
-        return !!state.allArticles[feedUrl] &&
-            (Date.now() - (fetchedAt[feedUrl] || 0)) < CACHE_TTL_MS;
-    }
-
-    // ========================
-    // Persistent cache
-    // ========================
-
-    function loadCache() {
-        try {
-            const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || "{}");
-            const state = Config.getState();
-            const knownUrls = new Set(state.feeds.map(f => f.url));
-            for (const [url, entry] of Object.entries(raw)) {
-                if (knownUrls.has(url) && entry && Array.isArray(entry.articles)) {
-                    state.allArticles[url] = entry.articles;
-                    fetchedAt[url] = entry.at || 0;
-                    if (entry.status) state.feedStatus[url] = entry.status; // dots show instantly
-                }
-            }
-        } catch {
-            /* corrupt cache: ignore */
-        }
-    }
-
-    /** Debounced so a burst of prefetches causes a single write. */
-    function scheduleSaveCache() {
-        clearTimeout(saveCacheTimer);
-        saveCacheTimer = setTimeout(() => {
-            try {
-                const state = Config.getState();
-                const out = {};
-                for (const f of state.feeds) {
-                    const arts = state.allArticles[f.url];
-                    if (arts && fetchedAt[f.url]) {
-                        out[f.url] = {
-                            at: fetchedAt[f.url],
-                            status: state.feedStatus[f.url] || null,
-                            articles: arts.slice(0, CACHE_PERSIST_LIMIT)
-                        };
-                    }
-                }
-                localStorage.setItem(CACHE_KEY, JSON.stringify(out));
-            } catch {
-                /* quota exceeded etc.: cache is best-effort */
-            }
-        }, 1000);
+        return !!state.allArticles[feedUrl] && Config.isCacheFresh(feedUrl);
     }
 
     // ========================
     // Data loading (shared by click, refresh, prefetch)
     // ========================
+
+    /**
+     * If some sources of an amalgamated feed failed, keep their previously
+     * cached articles instead of silently dropping them.
+     */
+    function keepFailedSources(feedUrl, result) {
+        if (result.failedUrls.length === 0) return result.articles;
+        const old = Config.getState().allArticles[feedUrl] || [];
+        const kept = old.filter(a => result.failedUrls.includes(a.sourceUrl));
+        if (kept.length === 0) return result.articles;
+        return result.articles.concat(kept)
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, Config.MAX_ENTRIES_PER_FEED);
+    }
+
+    /**
+     * Store a fetch result obtained elsewhere (used by the Add/Edit Feed
+     * dialog so a freshly validated feed shows instantly).
+     */
+    function storeFeedResult(feedUrl, articles, failedUrls) {
+        Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, failedUrls || []));
+        updateFeedDots();
+    }
 
     /**
      * Load a feed's data. Concurrent calls for the same feed share one
@@ -147,17 +119,14 @@ const UI = (() => {
                 job.listeners.forEach(fn => fn(partial));
             }, fetchOpts)
                 .then(result => {
-                    state.allArticles[feedUrl] = result.articles;
-                    fetchedAt[feedUrl] = Date.now();
-                    state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, result.failedUrls);
+                    const articles = keepFailedSources(feedUrl, result);
+                    Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, result.failedUrls));
                     updateFeedDots();
-                    scheduleSaveCache();
-                    return result;
+                    return { articles, failedUrls: result.failedUrls };
                 })
                 .catch(err => {
                     state.feedStatus[feedUrl] = { status: "error", failedUrls: RSS.parseFeedUrls(feedUrl) };
                     updateFeedDots();
-                    scheduleSaveCache();
                     throw err;
                 })
                 .finally(() => inflight.delete(feedUrl));
@@ -174,20 +143,24 @@ const UI = (() => {
     }
 
     /**
-     * Quietly warm the cache for feeds that aren't fresh: one feed at a time,
-     * gentle mode, with a pause between feeds. Stops as soon as the user
-     * picks another feed (that selection starts its own run).
+     * Warm the cache for every feed that isn't fresh, PREFETCH_WORKERS at a
+     * time, gentle mode (one proxy request per worker). Only one pass runs at
+     * a time. If the user clicks a feed that is still loading, it simply joins
+     * the request already in flight.
      */
     async function prefetchOthers() {
-        const run = ++prefetchRun;
+        if (prefetchRunning) return;
+        prefetchRunning = true;
+
         const state = Config.getState();
         const queue = sortedFeeds(state)
             .filter(f => f.url !== state.activeFeedUrl && !isFresh(f.url));
 
         const worker = async () => {
             while (queue.length > 0) {
-                if (run !== prefetchRun || document.hidden) return;
+                if (document.hidden) return;
                 const feed = queue.shift();
+                if (isFresh(feed.url)) continue;
                 try {
                     await loadFeedData(feed.url, null, { gentle: true });
                 } catch {
@@ -197,7 +170,11 @@ const UI = (() => {
             }
         };
 
-        await Promise.all(Array.from({ length: PREFETCH_WORKERS }, worker));
+        try {
+            await Promise.all(Array.from({ length: PREFETCH_WORKERS }, worker));
+        } finally {
+            prefetchRunning = false;
+        }
     }
 
     // ========================
@@ -291,6 +268,7 @@ const UI = (() => {
         });
 
         await fetchAndDisplayNews(feedUrl, feedName);
+        prefetchOthers(); // selected feed is done: now warm all the others (no-op if already fresh)
     }
 
     // ========================
@@ -341,11 +319,6 @@ const UI = (() => {
             Utils.showMessage(`Error fetching RSS: ${err.message}`, "error", 8000);
             if (!cached) {
                 articlesArea.innerHTML = '<p class="placeholder-text">Failed to load feed. Check the URL or try again later.</p>';
-            }
-        } finally {
-            if (token === loadToken) {
-                // Warm the other feeds slowly, once the one the user asked for is done
-                setTimeout(() => { if (token === loadToken) prefetchOthers(); }, PREFETCH_START_DELAY_MS);
             }
         }
     }
@@ -631,14 +604,15 @@ const UI = (() => {
                 const state = Config.getState();
                 if (state.activeFeedUrl && !isFresh(state.activeFeedUrl)) {
                     refreshActiveFeedSilently();
+                } else {
+                    prefetchOthers();
                 }
             }
         });
     }
 
     function init() {
-        Config.load();
-        loadCache(); // before first render so cached articles show instantly
+        Config.load(); // also restores the persisted article cache
         const state = Config.getState();
 
         Utils.applyTheme(state.currentTheme);
@@ -647,7 +621,8 @@ const UI = (() => {
         bindEventListeners();
         startAutoRefresh();
 
-        // Auto-load the 1st feed in the 1st row (sorted by row, then order)
+        // Auto-load the 1st feed in the 1st row (sorted by row, then order);
+        // selectFeed then warms all the other feeds in the background.
         if (state.feeds.length > 0) {
             const firstFeed = sortedFeeds(state)[0];
             selectFeed(firstFeed.url, firstFeed.name);
@@ -660,6 +635,7 @@ const UI = (() => {
         renderFeedButtons,
         selectFeed,
         clearArticles,
-        displayPage
+        displayPage,
+        storeFeedResult
     };
 })();
