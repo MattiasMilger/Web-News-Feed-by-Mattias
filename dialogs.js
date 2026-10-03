@@ -23,6 +23,57 @@ const Dialogs = (() => {
     function closeModal(modalId) {
         const modal = document.getElementById(modalId);
         if (modal) modal.classList.add("hidden");
+
+        // Closing the confirm dialog any way other than OK counts as "cancel"
+        if (modalId === "confirm-modal" && confirmResolver) {
+            const resolve = confirmResolver;
+            confirmResolver = null;
+            resolve(false);
+        }
+    }
+
+    // ========================
+    // In-app confirmation dialog (replaces the browser's confirm())
+    // ========================
+
+    let confirmResolver = null;
+
+    /**
+     * Show the in-app confirmation modal. Resolves true if the user clicks
+     * the confirm button, false on Cancel, X, Escape or a click outside.
+     * Usage: if (!(await Dialogs.confirmAction("Remove it?", { title: "Remove Feed" }))) return;
+     */
+    function confirmAction(message, options) {
+        const { title = "Confirm", confirmText = "OK", danger = true } = options || {};
+
+        // A new request cancels any confirmation that is still open
+        if (confirmResolver) {
+            const previous = confirmResolver;
+            confirmResolver = null;
+            previous(false);
+        }
+
+        document.getElementById("confirm-title").textContent = title;
+        document.getElementById("confirm-message").textContent = message;
+
+        const okBtn = document.getElementById("btn-confirm-ok");
+        okBtn.textContent = confirmText;
+        okBtn.classList.toggle("danger-button", danger);
+        okBtn.classList.toggle("accent-button", !danger);
+        document.getElementById("confirm-content").classList.toggle("modal-danger", danger);
+
+        openModal("confirm-modal");
+        // For destructive actions, focus Cancel so a stray Enter does not delete anything
+        (danger ? document.getElementById("btn-confirm-cancel") : okBtn).focus();
+
+        return new Promise(resolve => { confirmResolver = resolve; });
+    }
+
+    function settleConfirm(result) {
+        const resolve = confirmResolver;
+        confirmResolver = null;
+        closeModal("confirm-modal");
+        if (resolve) resolve(result);
     }
 
     /**
@@ -35,11 +86,18 @@ const Dialogs = (() => {
             });
         });
 
-        // Close modals on Escape key
+        document.getElementById("btn-confirm-ok").addEventListener("click", () => settleConfirm(true));
+
+        // Close modals on Escape key (an open confirmation dialog closes alone)
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
+                const confirmModal = document.getElementById("confirm-modal");
+                if (confirmModal && !confirmModal.classList.contains("hidden")) {
+                    closeModal("confirm-modal");
+                    return;
+                }
                 document.querySelectorAll(".modal:not(.hidden)").forEach(modal => {
-                    modal.classList.add("hidden");
+                    closeModal(modal.id);
                 });
             }
         });
@@ -50,7 +108,7 @@ const Dialogs = (() => {
             if (noBackgroundClose.includes(modal.id)) return;
             modal.addEventListener("click", e => {
                 if (e.target === modal) {
-                    modal.classList.add("hidden");
+                    closeModal(modal.id);
                 }
             });
         });
@@ -310,6 +368,7 @@ const Dialogs = (() => {
         document.getElementById("feed-row-input").value = "1";
         document.getElementById("feed-order-input").value = defaultOrder;
         renderFeedUrlRows([], null);
+        document.getElementById("btn-feed-delete").hidden = true; // nothing to delete when adding
         openModal("feed-edit-modal");
         document.getElementById("feed-name-input").focus();
     }
@@ -337,6 +396,7 @@ const Dialogs = (() => {
         const aggregateStatus = state.feedStatus[feed.url] || null;
         renderFeedUrlRows(urls, aggregateStatus);
 
+        document.getElementById("btn-feed-delete").hidden = false;
         openModal("feed-edit-modal");
         document.getElementById("feed-name-input").focus();
     }
@@ -479,26 +539,30 @@ const Dialogs = (() => {
     }
 
     /**
-     * Remove the selected feed.
+     * Remove the feed at the given index (after confirmation).
+     * Returns true if the feed was removed, false if cancelled or blocked.
      */
-    function removeFeed() {
-        if (selectedFeedIndex === null || selectedFeedIndex < 0) {
-            Utils.showMessage("Please select a feed to remove.", "warning");
-            return;
-        }
-        const idx = selectedFeedIndex;
-
+    async function removeFeedAt(idx) {
         const state = Config.getState();
+        if (idx === null || idx < 0 || idx >= state.feeds.length) {
+            Utils.showMessage("Feed not found.", "error");
+            return false;
+        }
+
         const removedFeed = state.feeds[idx];
         const feedName = removedFeed.name;
         const wasActive = state.activeFeedUrl === removedFeed.url;
 
         if (removedFeed.isProtected) {
-            Utils.showMessage(`'${feedName}' is protected. Unprotect it first (★ Protect Selected) before removing.`, "error");
-            return;
+            Utils.showMessage(`'${feedName}' is protected. Unprotect it first (★ Protect Selected in Manage Feeds) before removing.`, "error");
+            return false;
         }
 
-        if (!confirm(`Remove '${feedName}'?`)) return;
+        const confirmed = await confirmAction(`Remove '${feedName}'?`, {
+            title: "Remove Feed",
+            confirmText: "Remove"
+        });
+        if (!confirmed) return false;
 
         Config.dropCache(removedFeed.url);
         state.feeds.splice(idx, 1);
@@ -522,6 +586,29 @@ const Dialogs = (() => {
         }
 
         Utils.showMessage(`Feed '${feedName}' removed.`, "info");
+        return true;
+    }
+
+    /**
+     * Remove the feed selected in the Manage Feeds list.
+     */
+    async function removeFeed() {
+        if (selectedFeedIndex === null || selectedFeedIndex < 0) {
+            Utils.showMessage("Please select a feed to remove.", "warning");
+            return;
+        }
+        await removeFeedAt(selectedFeedIndex);
+    }
+
+    /**
+     * Delete the feed currently open in the Edit Feed dialog.
+     */
+    async function deleteEditedFeed() {
+        if (editingFeedIndex === null) return;
+        if (await removeFeedAt(editingFeedIndex)) {
+            editingFeedIndex = null;
+            closeModal("feed-edit-modal");
+        }
     }
 
     // ========================
@@ -605,7 +692,7 @@ const Dialogs = (() => {
      * Open the reset-config confirmation modal. Reached only via the
      * discreet "Danger Zone" trigger in Import/Export. Requires typing
      * RESET before the erase button becomes clickable, plus a final
-     * native confirm() as a second gate against stray clicks.
+     * in-app confirmation as a second gate against stray clicks.
      */
     function openResetConfigModal() {
         const state = Config.getState();
@@ -633,11 +720,15 @@ const Dialogs = (() => {
     /**
      * Reset config to factory defaults.
      */
-    function performConfigReset() {
+    async function performConfigReset() {
         const input = document.getElementById("reset-config-confirm-input");
         if (input.value.trim() !== "RESET") return; // guard even if the disabled check was bypassed
 
-        if (!confirm("Last chance: this erases every feed and setting in this browser, right now. Continue?")) return;
+        const confirmed = await confirmAction(
+            "Last chance: this erases every feed and setting in this browser, right now. Continue?",
+            { title: "Erase Everything?", confirmText: "Erase Everything" }
+        );
+        if (!confirmed) return;
 
         Config.resetToDefaults();
         Config.save();
@@ -661,6 +752,7 @@ const Dialogs = (() => {
         initCloseButtons,
         openModal,
         closeModal,
+        confirmAction,
 
         // Feed manager
         openFeedManager,
@@ -670,6 +762,7 @@ const Dialogs = (() => {
         openEditCurrentFeed,
         saveFeed,
         removeFeed,
+        deleteEditedFeed,
         addUrlRow,
         toggleSelectedFeedProtected,
 

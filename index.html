@@ -80,6 +80,7 @@
             </div>
             <div class="modal-button-row">
                 <button id="btn-feed-save" class="modal-action-button accent-button">Save</button>
+                <button id="btn-feed-delete" class="modal-action-button danger-button" hidden>Delete Feed</button>
                 <button id="btn-feed-cancel" class="modal-action-button" data-modal="feed-edit-modal">Cancel</button>
             </div>
         </div>
@@ -140,7 +141,7 @@
                     <ul class="info-list">
                         <li><strong>Add feeds</strong> - provide a name, RSS URL, row (1-10), and order (1-10).</li>
                         <li><strong>Amalgamated feeds</strong> - combine multiple RSS URLs (comma-separated) into one category.</li>
-                        <li><strong>Edit &amp; Remove</strong> - modify or delete feeds from the Manage Feeds dialog.</li>
+                        <li><strong>Edit &amp; Remove</strong> - modify or delete feeds from the Manage Feeds dialog. You can also delete a feed directly from the Edit Feed dialog (with confirmation).</li>
                         <li><strong>Protect feed</strong> - select a feed and click ★ Protect Selected to guard it against accidental removal. Protected feeds are marked with ★ in the list and must be unprotected before they can be removed.</li>
                         <li><strong>Edit Feed shortcut</strong> - jump straight to editing the currently active feed without opening Manage Feeds first.</li>
                         <li><strong>Rows 1-10</strong> - organize feed buttons into horizontal rows.</li>
@@ -189,6 +190,19 @@
                 </div>
             </div>
             <button class="modal-close-button" data-modal="info-modal">Close</button>
+        </div>
+    </div>
+
+    <!-- Confirm Modal (replaces the browser's confirm() popups; keep last among modals so it stacks on top) -->
+    <div id="confirm-modal" class="modal hidden">
+        <div id="confirm-content" class="modal-content modal-small modal-danger">
+            <span class="close-button" data-modal="confirm-modal">&times;</span>
+            <h2 id="confirm-title">Confirm</h2>
+            <p id="confirm-message" class="modal-subtitle"></p>
+            <div class="modal-button-row">
+                <button id="btn-confirm-ok" class="modal-action-button danger-button">OK</button>
+                <button id="btn-confirm-cancel" class="modal-action-button" data-modal="confirm-modal">Cancel</button>
+            </div>
         </div>
     </div>
 

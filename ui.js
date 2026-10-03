@@ -589,6 +589,7 @@ const UI = (() => {
         on("btn-feed-protect", "click", Dialogs.toggleSelectedFeedProtected);
         on("btn-feed-remove", "click", Dialogs.removeFeed);
         on("btn-feed-save", "click", Dialogs.saveFeed);
+        on("btn-feed-delete", "click", Dialogs.deleteEditedFeed);
         on("btn-add-url", "click", () => Dialogs.addUrlRow(""));
 
         on("btn-export-config", "click", Dialogs.exportConfig);
