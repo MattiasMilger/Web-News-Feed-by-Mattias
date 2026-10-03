@@ -30,7 +30,7 @@ const Config = (() => {
     const DEFAULT_FEEDS = [
         {
             name: "Cyberthreats",
-            url: "https://www.bleepingcomputer.com/feed/",
+            url: "https://www.bleepingcomputer.com/feed/, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml",
             row: 1,
             order: 1
         },
