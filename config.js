@@ -30,25 +30,25 @@ const Config = (() => {
     const DEFAULT_FEEDS = [
         {
             name: "Cyberthreats",
-            url: "https://www.cshub.com/rss/categories/malware, https://feeds.feedburner.com/TheHackersNews?format=xml, https://filestore.fortinet.com/fortiguard/rss/threatsignal.xml, https://www.bleepingcomputer.com/feed/",
+            url: "https://www.bleepingcomputer.com/feed/",
             row: 1,
             order: 1
         },
         {
             name: "AI",
-            url: "https://venturebeat.com/category/ai/feed/, https://machinelearningmastery.com/blog/feed/",
+            url: "https://machinelearningmastery.com/blog/feed/",
             row: 1,
             order: 2
         },
         {
             name: "IT General",
-            url: "https://www.computerweekly.com/rss/RSS-Feed.xml, https://www.crn.com/news/rss.xml",
+            url: "https://www.crn.com/news/rss.xml",
             row: 1,
             order: 3
         },
         {
             name: "World",
-            url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
+            url: "https://rss.dw.com/xml/rss-en-world",
             row: 2,
             order: 1
         },
