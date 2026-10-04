@@ -79,4 +79,4 @@ Works in all modern browsers (Chrome, Firefox, Edge, Safari). Requires JavaScrip
 
 ## More Projects
 
-Check out more of my work at [mattiasmilger.github.io](https://mattiasmilger.github.io/).
+Check out more of my work at [mattiasmilger.github.io](https://mattiasmilger.github.io/)
