@@ -25,7 +25,6 @@
             <div class="header-buttons">
                 <button id="btn-toggle-theme" class="control-button">◐</button>
                 <button id="btn-show-info" class="control-button">Info</button>
-                <button id="btn-manage-config" class="control-button">Import/Export</button>
             </div>
         </div>
 
@@ -50,6 +49,9 @@
                 <button id="btn-feed-add" class="modal-action-button accent-button">Add Feed</button>
                 <button id="btn-feed-edit" class="modal-action-button">Edit Selected</button>
                 <button id="btn-feed-remove" class="modal-action-button danger-button">Remove Selected</button>
+            </div>
+            <div class="feed-manager-footer">
+                <button type="button" id="btn-manage-config" class="feed-manager-config-link">Import / Export</button>
             </div>
             <button class="modal-close-button" data-modal="feed-manager-modal">Close</button>
         </div>
@@ -160,6 +162,7 @@
                 <div class="info-section">
                     <strong>Import/Export</strong>
                     <ul class="info-list">
+                        <li><strong>Access</strong> - open Manage Feeds, then use the <em>Import / Export</em> link at the bottom of that dialog.</li>
                         <li><strong>Export Config</strong> - download your feeds and settings as a JSON file.</li>
                         <li><strong>Import Config</strong> - load a previously exported config file.</li>
                         <li><strong>Reset Config</strong> - found under Danger Zone. Permanently erases every feed and setting in this browser and restores the defaults. Requires typing <code>RESET</code> and confirming a second time, since it cannot be undone.</li>

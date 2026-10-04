@@ -877,6 +877,32 @@ body.dark-mode .message-area.success {
     border-color: var(--accent-color);
 }
 
+.feed-manager-footer {
+    margin: 12px 0 4px 0;
+    padding-top: 10px;
+    border-top: 1px solid var(--separator-color);
+    text-align: center;
+}
+
+.feed-manager-config-link {
+    background: none;
+    border: none;
+    padding: 6px 10px;
+    font-size: 0.85em;
+    color: var(--summary-color);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    font-weight: normal;
+    opacity: 0.9;
+    transition: opacity 0.2s, color 0.2s;
+}
+
+.feed-manager-config-link:hover {
+    opacity: 1;
+    color: var(--accent-color);
+}
+
 .modal-button-row {
     display: flex;
     gap: 10px;
