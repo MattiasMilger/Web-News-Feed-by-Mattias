@@ -74,7 +74,8 @@ const Config = (() => {
     };
 
     /**
-     * Normalize a feed entry to { name, url, row, order, isProtected } format.
+     * Normalize a feed entry to { name, url, row, order } format.
+     * Any legacy fields (e.g. isProtected from older saves/exports) are ignored.
      */
     function normalizeFeed(item) {
         if (Array.isArray(item)) {
@@ -82,8 +83,7 @@ const Config = (() => {
                 name: item[0],
                 url: item[1],
                 row: item[2] !== undefined ? item[2] : DEFAULT_ROW,
-                order: item[3] !== undefined ? item[3] : null,
-                isProtected: !!item[4]
+                order: item[3] !== undefined ? item[3] : null
             };
         }
         if (typeof item === "object" && item.name) {
@@ -91,11 +91,10 @@ const Config = (() => {
                 name: item.name,
                 url: item.url,
                 row: item.row || DEFAULT_ROW,
-                order: item.order || null,
-                isProtected: !!item.isProtected
+                order: item.order || null
             };
         }
-        return { name: "Unknown", url: "", row: DEFAULT_ROW, order: null, isProtected: false };
+        return { name: "Unknown", url: "", row: DEFAULT_ROW, order: null };
     }
 
     /**
@@ -141,7 +140,7 @@ const Config = (() => {
         });
 
         loadCache();
-        save();
+        save(); // rewrites the stored config in the current format (drops any legacy fields)
     }
 
     /**
@@ -149,7 +148,7 @@ const Config = (() => {
      */
     function save() {
         const data = {
-            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order, isProtected: !!f.isProtected })),
+            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
             theme: state.currentTheme
         };
         try {
@@ -286,7 +285,7 @@ const Config = (() => {
      */
     function exportConfig() {
         return {
-            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order, isProtected: !!f.isProtected })),
+            feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
             theme: state.currentTheme
         };
     }
@@ -328,17 +327,6 @@ const Config = (() => {
         return state.feeds.findIndex(f => f.name === name);
     }
 
-    /**
-     * Toggle the protected flag on a feed by index (protects it from removal).
-     * Returns the new protected state, or null if the index is invalid.
-     */
-    function toggleProtected(index) {
-        if (index === null || index < 0 || index >= state.feeds.length) return null;
-        state.feeds[index].isProtected = !state.feeds[index].isProtected;
-        save();
-        return state.feeds[index].isProtected;
-    }
-
     return {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
@@ -348,7 +336,6 @@ const Config = (() => {
         load, save, getState,
         setCache, dropCache, isCacheFresh, pruneCache,
         getFeedIndexByName,
-        toggleProtected,
         resetToDefaults,
         exportConfig,
         importConfig
