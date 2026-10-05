@@ -4,30 +4,19 @@
  */
 
 const Dialogs = (() => {
-    // Track which feed is being edited (null = adding new)
     let editingFeedIndex = null;
-    // Track which feed row is selected in the feed manager list
     let selectedFeedIndex = null;
 
-    /**
-     * Open a modal by ID.
-     */
     function openModal(modalId) {
         const modal = document.getElementById(modalId);
         if (modal) modal.classList.remove("hidden");
     }
 
-    /**
-     * Close a modal by ID.
-     */
     function closeModal(modalId) {
         const modal = document.getElementById(modalId);
         if (modal) modal.classList.add("hidden");
     }
 
-    /**
-     * Initialize all close buttons (X and Cancel/Close buttons).
-     */
     function initCloseButtons() {
         document.querySelectorAll("[data-modal]").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -35,7 +24,6 @@ const Dialogs = (() => {
             });
         });
 
-        // Close modals on Escape key
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
                 document.querySelectorAll(".modal:not(.hidden)").forEach(modal => {
@@ -44,10 +32,8 @@ const Dialogs = (() => {
             }
         });
 
-        // Close modal when clicking outside the modal content (except feed modals)
-        const noBackgroundClose = ["feed-manager-modal", "feed-edit-modal"];
+        // Close modal when clicking outside the modal content (background backdrop)
         document.querySelectorAll(".modal").forEach(modal => {
-            if (noBackgroundClose.includes(modal.id)) return;
             modal.addEventListener("click", e => {
                 if (e.target === modal) {
                     modal.classList.add("hidden");
@@ -56,13 +42,6 @@ const Dialogs = (() => {
         });
     }
 
-    // ========================
-    // Feed Manager
-    // ========================
-
-    /**
-     * Open the feed manager modal and populate the listbox.
-     */
     function openFeedManager() {
         const state = Config.getState();
         if (selectedFeedIndex === null || selectedFeedIndex < 0 || selectedFeedIndex >= state.feeds.length) {
@@ -73,10 +52,6 @@ const Dialogs = (() => {
         openModal("feed-manager-modal");
     }
 
-    /**
-     * Determine a feed's current status (ok / partial / error / unknown)
-     * based on the last fetch result stored in state.feedStatus.
-     */
     function getFeedStatusInfo(feed, state) {
         const status = state.feedStatus[feed.url];
         if (!status) {
@@ -93,10 +68,6 @@ const Dialogs = (() => {
         return { cls: "error", label: `Down - ${failedDomains} not responding` };
     }
 
-    /**
-     * Determine a single URL's status within an amalgamated feed, based on
-     * the aggregate fetch result (which lists which specific URLs failed).
-     */
     function getUrlStatusInfo(url, aggregateStatus) {
         if (!aggregateStatus) {
             return { cls: "unknown", label: "Unchecked", title: "Not checked yet" };
@@ -107,16 +78,12 @@ const Dialogs = (() => {
         return { cls: "ok", label: "Up", title: "Responding" };
     }
 
-    /**
-     * Build a single editable URL row for the Add/Edit Feed modal.
-     */
     function createUrlRowElement(url, statusInfo) {
         const row = document.createElement("div");
         row.className = "feed-url-row";
 
         const dot = document.createElement("span");
         dot.className = `feed-list-status-dot status-${statusInfo.cls}`;
-        dot.title = statusInfo.title || statusInfo.label;
         row.appendChild(dot);
 
         const label = document.createElement("span");
@@ -142,9 +109,6 @@ const Dialogs = (() => {
         return row;
     }
 
-    /**
-     * Append a new, empty (or pre-filled) URL row to the list.
-     */
     function addUrlRow(url) {
         const list = document.getElementById("feed-url-list");
         const row = createUrlRowElement(url || "", { cls: "unknown", label: "New", title: "Not checked yet" });
@@ -154,10 +118,6 @@ const Dialogs = (() => {
         }
     }
 
-    /**
-     * Rebuild the URL row list from an array of URLs, each annotated with
-     * its status from the last fetch of the amalgamated feed (if any).
-     */
     function renderFeedUrlRows(urls, aggregateStatus) {
         const list = document.getElementById("feed-url-list");
         list.innerHTML = "";
@@ -171,18 +131,12 @@ const Dialogs = (() => {
         });
     }
 
-    /**
-     * Read all non-empty URL values currently in the URL row list.
-     */
     function collectUrlRowValues() {
         return Array.from(document.querySelectorAll("#feed-url-list .feed-url-row-input"))
             .map(input => input.value.trim())
             .filter(v => v.length > 0);
     }
 
-    /**
-     * Refresh the feed manager listbox.
-     */
     function refreshFeedListbox() {
         const listbox = document.getElementById("feed-listbox");
         const state = Config.getState();
@@ -193,7 +147,6 @@ const Dialogs = (() => {
             return;
         }
 
-        // Display sorted by row then order, but keep original index as value
         const sortedIndices = state.feeds
             .map((feed, i) => ({ feed, i }))
             .sort((a, b) => a.feed.row !== b.feed.row
@@ -217,7 +170,7 @@ const Dialogs = (() => {
 
             const dot = document.createElement("span");
             dot.className = `feed-list-status-dot status-${statusInfo.cls}`;
-            dot.title = statusInfo.label;
+            // No title attribute to prevent tooltip
             row.appendChild(dot);
 
             const main = document.createElement("div");
@@ -253,9 +206,6 @@ const Dialogs = (() => {
         });
     }
 
-    /**
-     * Open the add-feed modal.
-     */
     function openAddFeed() {
         editingFeedIndex = null;
         const state = Config.getState();
@@ -271,9 +221,6 @@ const Dialogs = (() => {
         document.getElementById("feed-name-input").focus();
     }
 
-    /**
-     * Open the edit-feed modal for the selected feed.
-     */
     function openEditFeed() {
         if (selectedFeedIndex === null || selectedFeedIndex < 0) {
             Utils.showMessage("Please select a feed to edit.", "warning");
@@ -298,10 +245,6 @@ const Dialogs = (() => {
         document.getElementById("feed-name-input").focus();
     }
 
-    /**
-     * Shortcut: open the edit modal directly for the currently active
-     * feed, without needing to open Manage Feeds and select it first.
-     */
     function openEditCurrentFeed() {
         const state = Config.getState();
         const idx = state.activeFeedUrl
@@ -317,9 +260,6 @@ const Dialogs = (() => {
         openEditFeed();
     }
 
-    /**
-     * Save the add/edit feed form.
-     */
     async function saveFeed() {
         const name = document.getElementById("feed-name-input").value.trim();
         const urlList = collectUrlRowValues();
@@ -342,11 +282,10 @@ const Dialogs = (() => {
             return;
         }
 
-        // Validate by actually fetching the feed(s)
         const saveBtn = document.getElementById("btn-feed-save");
         saveBtn.disabled = true;
         saveBtn.textContent = "Validating...";
-        let validated = null; // the fetch result is reused to seed the cache below
+        let validated = null;
         try {
             validated = await RSS.fetchFeedEntries(url);
             const { failedUrls } = validated;
@@ -369,7 +308,6 @@ const Dialogs = (() => {
         const orderNum = isNaN(order) || order < 1 || order > Config.MAX_ORDER ? Config.DEFAULT_ORDER : order;
         const state = Config.getState();
 
-        // Check for duplicate names (excluding self when editing)
         const duplicateIdx = state.feeds.findIndex(f => f.name === name);
         if (duplicateIdx >= 0 && duplicateIdx !== editingFeedIndex) {
             Utils.showMessage(`A feed named '${name}' already exists.`, "warning");
@@ -381,7 +319,6 @@ const Dialogs = (() => {
             const oldRow = state.feeds[editingFeedIndex].row;
             const oldOrder = state.feeds[editingFeedIndex].order;
 
-            // If another feed occupies the target (row, order) slot, swap them
             const swapIdx = state.feeds.findIndex((f, i) =>
                 i !== editingFeedIndex && f.row === rowNum && f.order === orderNum
             );
@@ -389,7 +326,6 @@ const Dialogs = (() => {
                 state.feeds[swapIdx].row = oldRow;
                 state.feeds[swapIdx].order = oldOrder;
             } else {
-                // No swap: check max feeds per row
                 const feedsInTargetRow = state.feeds.filter((f, i) => f.row === rowNum && i !== editingFeedIndex).length;
                 if (feedsInTargetRow >= Config.MAX_ORDER) {
                     Utils.showMessage(`Row ${rowNum} already has ${Config.MAX_ORDER} feeds (maximum).`, "error");
@@ -419,7 +355,6 @@ const Dialogs = (() => {
             Utils.showMessage(msg, "success");
         }
 
-        // Reuse the validation fetch so the feed shows instantly instead of loading twice
         if (validated) UI.storeFeedResult(url, validated.articles, validated.failedUrls);
 
         Config.save();
@@ -427,7 +362,6 @@ const Dialogs = (() => {
         refreshFeedListbox();
         UI.renderFeedButtons();
 
-        // Auto-select the added feed, or re-select the edited feed if URL changed
         if (editingFeedIndex === null) {
             UI.selectFeed(url, name);
         } else if (state.activeFeedUrl === url) {
@@ -435,9 +369,6 @@ const Dialogs = (() => {
         }
     }
 
-    /**
-     * Remove the selected feed.
-     */
     function removeFeed() {
         if (selectedFeedIndex === null || selectedFeedIndex < 0) {
             Utils.showMessage("Please select a feed to remove.", "warning");
@@ -476,20 +407,10 @@ const Dialogs = (() => {
         Utils.showMessage(`Feed '${feedName}' removed.`, "info");
     }
 
-    // ========================
-    // Config Management
-    // ========================
-
-    /**
-     * Open the config management modal.
-     */
     function openConfigManager() {
         openModal("config-modal");
     }
 
-    /**
-     * Export config as a downloadable JSON file.
-     */
     function exportConfig() {
         const data = Config.exportConfig();
         const json = JSON.stringify(data, null, 4);
@@ -507,18 +428,12 @@ const Dialogs = (() => {
         Utils.showMessage("Config exported.", "success", 3000);
     }
 
-    /**
-     * Trigger the hidden file input for import.
-     */
     function triggerImport() {
         const fileInput = document.getElementById("config-file-input");
         fileInput.value = "";
         fileInput.click();
     }
 
-    /**
-     * Handle the file input change event for importing config.
-     */
     function handleImportFile(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -553,12 +468,6 @@ const Dialogs = (() => {
         reader.readAsText(file);
     }
 
-    /**
-     * Open the reset-config confirmation modal. Reached only via the
-     * discreet "Danger Zone" trigger in data config. Requires typing
-     * RESET before the erase button becomes clickable, plus a final
-     * native confirm() as a second gate against stray clicks.
-     */
     function openResetConfigModal() {
         const state = Config.getState();
 
@@ -578,14 +487,9 @@ const Dialogs = (() => {
         document.getElementById("btn-reset-config-confirm").disabled = input.value.trim() !== "RESET";
     }
 
-    /**
-     * Reset config to factory defaults.
-     */
     function performConfigReset() {
         const input = document.getElementById("reset-config-confirm-input");
-        if (input.value.trim() !== "RESET") return; // guard even if the disabled check was bypassed
-
-        if (!confirm("Last chance: this erases every feed and setting in this browser, right now. Continue?")) return;
+        if (input.value.trim() !== "RESET") return;
 
         Config.resetToDefaults();
         Config.save();
@@ -609,8 +513,6 @@ const Dialogs = (() => {
         initCloseButtons,
         openModal,
         closeModal,
-
-        // Feed manager
         openFeedManager,
         refreshFeedListbox,
         openAddFeed,
@@ -619,8 +521,6 @@ const Dialogs = (() => {
         saveFeed,
         removeFeed,
         addUrlRow,
-
-        // Config management
         openConfigManager,
         exportConfig,
         triggerImport,

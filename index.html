@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web News Feed by Mattias</title>
+    <meta name="description" content="A browser-based RSS news feed reader with amalgamated feeds, live search, and custom organization.">
+    <meta property="og:title" content="Web News Feed by Mattias">
+    <meta property="og:description" content="A browser-based RSS news feed reader with amalgamated feeds, live search, and custom organization.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-mode">
@@ -37,7 +42,7 @@
         <div id="pagination-area" class="pagination-area hidden"></div>
     </div>
 
-    <!-- Feed Manager Modal -->
+    <!-- Feed Manager Modal (Settings Page) -->
     <div id="feed-manager-modal" class="modal hidden">
         <div class="modal-content modal-large">
             <span class="close-button" data-modal="feed-manager-modal">&times;</span>
@@ -50,10 +55,9 @@
                 <button id="btn-feed-edit" class="modal-action-button">Edit Selected</button>
                 <button id="btn-feed-remove" class="modal-action-button danger-button">Remove Selected</button>
             </div>
-            <div class="feed-manager-footer">
-                <button type="button" id="btn-manage-config" class="feed-manager-config-link">Data Config</button>
+            <div class="modal-close-center">
+                <button class="modal-close-button centered" data-modal="feed-manager-modal">Close</button>
             </div>
-            <button class="modal-close-button" data-modal="feed-manager-modal">Close</button>
         </div>
     </div>
 
@@ -96,12 +100,14 @@
                 <button id="btn-export-config" class="modal-action-button">Export Config</button>
                 <button id="btn-import-config" class="modal-action-button">Import Config</button>
             </div>
-            <div class="form-group">
+            <div class="danger-zone-section">
                 <label class="reset-label">Danger Zone</label>
                 <button id="btn-reset-config-open" class="modal-action-button danger-button">Reset Config</button>
             </div>
             <input type="file" id="config-file-input" accept=".json" class="hidden-file-input">
-            <button class="modal-close-button" data-modal="config-modal">Close</button>
+            <div class="modal-close-center">
+                <button class="modal-close-button centered" data-modal="config-modal">Close</button>
+            </div>
         </div>
     </div>
 
@@ -160,12 +166,12 @@
                     </ul>
                 </div>
                 <div class="info-section">
-                    <strong>data config</strong>
+                    <strong>Data Config</strong>
                     <ul class="info-list">
-                        <li><strong>Access</strong> - open Manage Feeds, then use the <em>data config</em> link at the bottom of that dialog.</li>
+                        <li><strong>Access</strong> - located in the site footer directly above the GitHub Repository link.</li>
                         <li><strong>Export Config</strong> - download your feeds and settings as a JSON file.</li>
                         <li><strong>Import Config</strong> - load a previously exported config file.</li>
-                        <li><strong>Reset Config</strong> - found under Danger Zone. Permanently erases every feed and setting in this browser and restores the defaults. Requires typing <code>RESET</code> and confirming a second time, since it cannot be undone.</li>
+                        <li><strong>Reset Config</strong> - found under Danger Zone. Permanently erases every feed and setting in this browser and restores the defaults. Requires typing <code>RESET</code> to confirm.</li>
                     </ul>
                 </div>
                 <div class="info-section">
@@ -176,11 +182,11 @@
                     </ul>
                 </div>
 
-                <h3>Keyboard Shortcuts</h3>
+                <h3>Keyboard Shortcuts &amp; Navigation</h3>
                 <div class="info-section">
                     <ul class="info-list">
                         <li><strong>Enter</strong> in search box - triggers search.</li>
-                        <li><strong>Escape</strong> - closes any open modal.</li>
+                        <li><strong>Escape</strong> or click background - closes any open modal.</li>
                     </ul>
                 </div>
 
@@ -189,11 +195,16 @@
                     <p>RSS feeds are fetched via CORS proxies since browsers block direct cross-origin requests. All configuration is stored in your browser's localStorage - nothing is sent to a server.</p>
                 </div>
             </div>
-            <button class="modal-close-button" data-modal="info-modal">Close</button>
+            <div class="modal-close-center">
+                <button class="modal-close-button centered" data-modal="info-modal">Close</button>
+            </div>
         </div>
     </div>
 
     <footer>
+        <div class="footer-config">
+            <button type="button" id="btn-footer-config" class="feed-manager-config-link">Data Config</button>
+        </div>
         <p><a href="https://github.com/MattiasMilger/Web-News-Feed-by-Mattias" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
     </footer>
 

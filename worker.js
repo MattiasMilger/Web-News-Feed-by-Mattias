@@ -45,7 +45,7 @@ export default {
                 headers: {
                     "User-Agent": "Mozilla/5.0 (compatible; PersonalNewsFeedProxy/1.0)"
                 },
-                cf: { cacheTtl: 120, cacheEverything: true } // light caching to save on requests
+                cf: { cacheTtl: 120, cacheEverything: true }
             });
 
             const body = await upstreamResponse.arrayBuffer();

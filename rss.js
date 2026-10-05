@@ -1,27 +1,9 @@
 /**
  * rss.js - RSS feed fetching and parsing
- *
- * Speed strategy:
- *  - Proxies are ranked by measured latency/failure history (persisted in
- *    localStorage), so the historically fastest proxy is always tried first.
- *  - Hedged requests: if the current proxy fails OR is slow (2.5s), ONE backup
- *    proxy joins the race (never more than 2 in flight per URL). First valid
- *    response wins. Failed sources get a last sequential retry, so this is
- *    never less reliable than plain sequential fallback.
- *  - Sources of an amalgamated feed run in parallel with a small stagger;
- *    partial results are reported as each source arrives.
- *  - Background prefetch uses "gentle" mode (one request at a time) so it can
- *    never trigger proxy rate limits.
- *  - HTML in summaries is stripped with an inert DOMParser document, so no
- *    images/trackers inside feed descriptions are ever downloaded.
- *
- * For the biggest possible speedup, deploy worker.js (free Cloudflare Worker)
- * and put its URL in SELF_HOSTED_PROXY_BASE below; it is then always tried
- * first, with the public proxies kept as fallback.
  */
 
 const RSS = (() => {
-    const SELF_HOSTED_PROXY_BASE = ""; // e.g. "https://your-worker.your-subdomain.workers.dev/?url="
+    const SELF_HOSTED_PROXY_BASE = "";
 
     const PUBLIC_CORS_PROXIES = [
         {
@@ -47,7 +29,6 @@ const RSS = (() => {
         {
             name: "allorigins.win (json)",
             build: url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-            // This endpoint wraps the feed in { contents: "<xml...>" }.
             extract: text => {
                 const data = JSON.parse(text);
                 return data && typeof data.contents === "string" ? data.contents : text;
@@ -62,18 +43,14 @@ const RSS = (() => {
         ]
         : PUBLIC_CORS_PROXIES;
 
-    const FETCH_TIMEOUT = 15000;       // generous: some feeds/proxies are slow but DO work
-    const HEDGE_DELAY_MS = 2500;       // start ONE backup proxy if no answer by then
-    const MAX_PARALLEL_PER_URL = 2;    // never more than 2 proxy requests at once per URL
-    const PROXY_COOLDOWN_MS = 30000;   // skip a proxy for 30s after it rate-limits us
-    const URL_STAGGER_MS = 150;        // small gap between sources of an amalgamated feed
-    const RETRY_TIMEOUT = 12000;       // last-resort retry: every proxy, one at a time
-    const STATS_KEY = "newsfeed_proxy_stats_v2";   // v2: discards stats poisoned by the earlier version
-    const STATS_MAX_AGE_MS = 30 * 60 * 1000;       // failure penalties are forgotten after 30 min
-
-    // ------------------------
-    // Proxy health tracking
-    // ------------------------
+    const FETCH_TIMEOUT = 15000;
+    const HEDGE_DELAY_MS = 2500;
+    const MAX_PARALLEL_PER_URL = 2;
+    const PROXY_COOLDOWN_MS = 30000;
+    const URL_STAGGER_MS = 150;
+    const RETRY_TIMEOUT = 12000;
+    const STATS_KEY = "newsfeed_proxy_stats_v2";
+    const STATS_MAX_AGE_MS = 30 * 60 * 1000;
 
     const proxyCooldownUntil = {};
     let proxyStats = {};
@@ -121,7 +98,6 @@ const RSS = (() => {
         proxyCooldownUntil[name] = Date.now() + ms;
     }
 
-    /** Proxies ordered best-first; cooling-down ones are skipped unless all are (or ignoreCooldown). */
     function orderedProxies(ignoreCooldown) {
         let list = ignoreCooldown ? CORS_PROXIES.slice() : CORS_PROXIES.filter(p => !isProxyOnCooldown(p.name));
         if (list.length === 0) list = CORS_PROXIES.slice();
@@ -131,10 +107,6 @@ const RSS = (() => {
     function delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
-
-    // ------------------------
-    // Parsing helpers
-    // ------------------------
 
     function parseFeedUrls(urlString) {
         if (!urlString || typeof urlString !== "string") return [];
@@ -159,17 +131,12 @@ const RSS = (() => {
 
     const htmlParser = new DOMParser();
 
-    /**
-     * Strip HTML tags and decode entities using an inert document
-     * (unlike innerHTML on a live-document div, this never loads images).
-     */
     function stripHtml(html) {
         if (!html) return "";
         const doc = htmlParser.parseFromString(html, "text/html");
         return doc.body ? (doc.body.textContent || "") : "";
     }
 
-    /** Pick the article link: Atom may have several <link>, prefer rel=alternate. */
     function extractLink(item) {
         const links = item.querySelectorAll("link");
         let chosen = null;
@@ -182,9 +149,6 @@ const RSS = (() => {
         return (chosen.getAttribute("href") || chosen.textContent || "").trim();
     }
 
-    /**
-     * Parse XML text into an array of article objects (RSS 2.0 and Atom).
-     */
     function parseXml(xmlText, sourceUrl, maxItems) {
         const doc = new DOMParser().parseFromString(xmlText, "text/xml");
 
@@ -239,10 +203,6 @@ const RSS = (() => {
         return articles;
     }
 
-    // ------------------------
-    // Fetching
-    // ------------------------
-
     function createTimeoutSignal(ms) {
         const controller = new AbortController();
         const timerId = setTimeout(() => controller.abort(), ms);
@@ -253,10 +213,6 @@ const RSS = (() => {
         };
     }
 
-    /**
-     * Fetch through a single proxy. Returns response text or throws.
-     * `externalSignal` lets the caller cancel (when another proxy has won).
-     */
     async function fetchWithProxy(proxy, url, externalSignal, timeoutMs) {
         const timeout = createTimeoutSignal(timeoutMs || FETCH_TIMEOUT);
         if (externalSignal) {
@@ -299,14 +255,6 @@ const RSS = (() => {
         }
     }
 
-    /**
-     * Fetch one feed URL across proxies.
-     *  - normal mode: best proxy first; if it fails OR is slow (HEDGE_DELAY_MS)
-     *    ONE backup proxy joins the race (max MAX_PARALLEL_PER_URL in flight).
-     *  - gentle mode: strictly one proxy at a time (used for background
-     *    prefetch and last-resort retries, so we never burst the proxies).
-     * First valid response wins; losers are aborted.
-     */
     function fetchSingleFeed(url, opts) {
         const { gentle = false, ignoreCooldown = false, maxProxies = Infinity, timeout = FETCH_TIMEOUT } = opts || {};
         const proxies = orderedProxies(ignoreCooldown).slice(0, maxProxies);
@@ -347,7 +295,7 @@ const RSS = (() => {
                     })
                     .catch(err => {
                         inFlight--;
-                        if (settled) return; // aborted because another proxy won
+                        if (settled) return;
                         errors.push(`${proxy.name}: ${err.message}`);
                         recordFailure(proxy.name);
                         if (err.isRateLimited) markProxyCooldown(proxy.name, PROXY_COOLDOWN_MS);
@@ -369,15 +317,6 @@ const RSS = (() => {
         });
     }
 
-    /**
-     * Fetch all URLs of a (possibly amalgamated) feed.
-     * onPartial(articlesSoFar) fires as each source arrives.
-     * opts.gentle: sources are fetched one after another, one proxy at a time
-     * (background prefetch). Otherwise sources run in parallel with a small
-     * stagger, and any source that fails gets one last sequential retry through
-     * every proxy. opts.onSource(url, ok) fires as each source finishes.
-     * Returns { articles, failedUrls }.
-     */
     async function fetchFeedEntries(feedUrl, maxEntries, onPartial, opts) {
         maxEntries = maxEntries || Config.MAX_ENTRIES_PER_FEED;
         const gentle = !!(opts && opts.gentle);
@@ -402,7 +341,6 @@ const RSS = (() => {
         async function loadOne(u) {
             const notify = ok => { if (opts && opts.onSource) opts.onSource(u, ok); };
             try {
-                // Gentle (background) mode tries every proxy once, sequentially.
                 accept(await fetchSingleFeed(u, { gentle, ignoreCooldown: gentle }));
                 notify(true);
                 return;
@@ -414,8 +352,6 @@ const RSS = (() => {
                 }
             }
             try {
-                // Last resort: EVERY proxy (cooldowns ignored), one at a time. Equivalent
-                // to the original sequential fallback, so nothing that used to load is lost.
                 accept(await fetchSingleFeed(u, {
                     gentle: true, ignoreCooldown: true, timeout: RETRY_TIMEOUT
                 }));
@@ -445,9 +381,6 @@ const RSS = (() => {
         return { articles: collected.slice(0, maxEntries), failedUrls };
     }
 
-    /**
-     * Quick validation: check if a URL string looks valid.
-     */
     function validateFeedUrl(urlString) {
         const urls = parseFeedUrls(urlString);
         if (urls.length === 0) return { valid: false, error: "No URLs provided" };

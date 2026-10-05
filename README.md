@@ -21,9 +21,10 @@ Open `index.html` in a modern browser. No build tools or dependencies required.
 - **Dark / Light Theme** - Toggle between dark and light modes (dark by default).
 - **Auto-Refresh** - Feeds refresh automatically every 5 minutes.
 - **Article Cache** - Loaded feeds are cached (in memory and `localStorage`), so switching feeds or reloading shows articles instantly; stale feeds refresh in the background.
-- **data config** - Export, import, or reset your configuration via JSON files.
+- **data config** - Export, import, or reset your configuration via JSON files, accessible in the site footer directly above the repository link.
 - **Persistent Storage** - All settings saved in your browser's `localStorage`.
 - **Responsive Design** - Works on desktop and mobile devices.
+- **Easy Dismissal** - All dialogs and menus close by clicking the background overlay, using the Close button, or pressing `Escape`.
 
 ## Project Structure
 
@@ -58,7 +59,7 @@ Web News Feed by Mattias/
 5. Articles are sorted by publication date (newest first) and displayed with **pagination** (12 per page, max 10 pages).
 6. The **search box** filters articles in real-time and highlights matching text.
 7. **Feed management** (add, edit, remove) is done through the Manage Feeds dialog. Each feed has a row and an order; editing a feed into an occupied slot swaps the two feeds.
-8. **data config** allows exporting your setup as a JSON file, importing a previous export, or resetting to defaults.
+8. **data config** (accessed via the site footer) allows exporting your setup as a JSON file, importing a previous export, or resetting to defaults (with typed in-app confirmation).
 
 ## Technical Notes
 

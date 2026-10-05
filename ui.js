@@ -1,35 +1,16 @@
 /**
  * ui.js - Main UI rendering and interaction
- * Handles feed buttons, article display, pagination, search, and theme toggling.
- * Entry point that wires everything together on DOMContentLoaded.
- *
- * Speed strategy:
- *  - Articles are cached in memory AND persisted to localStorage, so the page
- *    opens with the last articles already on screen.
- *  - Stale-while-revalidate: cached articles render instantly; a background
- *    fetch updates them if older than CACHE_TTL_MS.
- *  - In-flight requests are shared (a click and a prefetch for the same feed
- *    never double-fetch).
- *  - As soon as the selected feed has loaded, ALL other stale feeds load in
- *    the background (PREFETCH_WORKERS at a time, one proxy request per worker)
- *    so switching feeds is instant without hammering the CORS proxies.
- *  - The article cache lives in Config (single owner, single localStorage key).
- *  - A load token stops a slow response from overwriting a newer selection.
  */
 
 const UI = (() => {
     let refreshTimerId = null;
 
-    const PREFETCH_GAP_MS = 100;           // tiny pause between background fetches
-    const PREFETCH_WORKERS = 4;            // feeds loading at once at startup
+    const PREFETCH_GAP_MS = 100;
+    const PREFETCH_WORKERS = 4;
 
-    const inflight = new Map();        // feedUrl -> { promise, listeners, latest }
-    let loadToken = 0;                 // incremented on every feed selection
-    let prefetchRunning = false;       // only one prefetch pass at a time
-
-    // ========================
-    // Helpers
-    // ========================
+    const inflight = new Map();
+    let loadToken = 0;
+    let prefetchRunning = false;
 
     function summarizeFetchResult(feedUrl, failedUrls) {
         const totalSources = RSS.parseFeedUrls(feedUrl).length;
@@ -59,14 +40,6 @@ const UI = (() => {
         return !!state.allArticles[feedUrl] && Config.isCacheFresh(feedUrl);
     }
 
-    // ========================
-    // Data loading (shared by click, refresh, prefetch)
-    // ========================
-
-    /**
-     * If some sources of an amalgamated feed failed, keep their previously
-     * cached articles instead of silently dropping them.
-     */
     function keepFailedSources(feedUrl, result) {
         if (result.failedUrls.length === 0) return result.articles;
         const old = Config.getState().allArticles[feedUrl] || [];
@@ -77,20 +50,11 @@ const UI = (() => {
             .slice(0, Config.MAX_ENTRIES_PER_FEED);
     }
 
-    /**
-     * Store a fetch result obtained elsewhere (used by the Add/Edit Feed
-     * dialog so a freshly validated feed shows instantly).
-     */
     function storeFeedResult(feedUrl, articles, failedUrls) {
         Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, failedUrls || []));
         updateFeedDots();
     }
 
-    /**
-     * Load a feed's data. Concurrent calls for the same feed share one
-     * network job. onPartial (optional) receives articles as each source
-     * arrives. Resolves with { articles, failedUrls }.
-     */
     function loadFeedData(feedUrl, onPartial, opts) {
         let job = inflight.get(feedUrl);
 
@@ -102,7 +66,6 @@ const UI = (() => {
             const failedSoFar = [];
             let doneSoFar = 0;
 
-            // Update the status dot the moment each source finishes
             const fetchOpts = Object.assign({}, opts, {
                 onSource: (url, ok) => {
                     doneSoFar++;
@@ -142,12 +105,6 @@ const UI = (() => {
         return job.promise;
     }
 
-    /**
-     * Warm the cache for every feed that isn't fresh, PREFETCH_WORKERS at a
-     * time, gentle mode (one proxy request per worker). Only one pass runs at
-     * a time. If the user clicks a feed that is still loading, it simply joins
-     * the request already in flight.
-     */
     async function prefetchOthers() {
         if (prefetchRunning) return;
         prefetchRunning = true;
@@ -164,7 +121,7 @@ const UI = (() => {
                 try {
                     await loadFeedData(feed.url, null, { gentle: true });
                 } catch {
-                    /* status dot already updated */
+                    /* ignore */
                 }
                 await sleep(PREFETCH_GAP_MS);
             }
@@ -176,10 +133,6 @@ const UI = (() => {
             prefetchRunning = false;
         }
     }
-
-    // ========================
-    // Feed Buttons
-    // ========================
 
     function renderFeedButtons() {
         const area = document.getElementById("feed-buttons-area");
@@ -212,38 +165,43 @@ const UI = (() => {
         }
     }
 
-    /** Apply a feed's status to a dot element. */
-    function applyDotStatus(dot, status) {
+    /** Apply a feed's status to a dot element (tooltip removed when hovering over a feed item). */
+    function applyDotStatus(dot, status, showTooltip = false) {
         dot.className = "feed-status-dot";
         dot.title = "";
+        dot.removeAttribute("title");
         if (status) {
             dot.classList.add(`status-${status.status}`);
-            dot.title = status.failedUrls.length > 0
-                ? `Failed: ${status.failedUrls.map(RSS.extractDomain).join(", ")}`
-                : "All sources OK";
+            if (showTooltip) {
+                dot.title = status.failedUrls.length > 0
+                    ? `Failed: ${status.failedUrls.map(RSS.extractDomain).join(", ")}`
+                    : "All sources OK";
+            }
         }
     }
 
-    /** Update all status dots in place (no re-render, safe to call any time). */
     function updateFeedDots() {
         const state = Config.getState();
         document.querySelectorAll(".feed-button").forEach(btn => {
+            const feedUrl = btn.dataset.feedUrl;
             const dot = btn.querySelector(".feed-status-dot");
-            if (dot) applyDotStatus(dot, state.feedStatus[btn.title]);
+            if (dot && feedUrl) applyDotStatus(dot, state.feedStatus[feedUrl], false);
         });
     }
 
     function buildFeedButton(feed, state) {
         const btn = document.createElement("button");
         btn.className = "feed-button";
-        btn.title = feed.url;
+        // Do NOT set btn.title to remove tooltip when hovering over a feed item
+        btn.dataset.feedUrl = feed.url;
+        btn.removeAttribute("title");
 
         const nameSpan = document.createElement("span");
         nameSpan.textContent = feed.name;
         btn.appendChild(nameSpan);
 
         const dot = document.createElement("span");
-        applyDotStatus(dot, state.feedStatus[feed.url]);
+        applyDotStatus(dot, state.feedStatus[feed.url], false);
         btn.appendChild(dot);
 
         if (feed.url === state.activeFeedUrl) {
@@ -254,9 +212,6 @@ const UI = (() => {
         return btn;
     }
 
-    /**
-     * Select a feed: show cached articles instantly (if any), refresh if stale.
-     */
     async function selectFeed(feedUrl, feedName) {
         const state = Config.getState();
         state.activeFeedUrl = feedUrl;
@@ -264,16 +219,12 @@ const UI = (() => {
         state.currentPage = 1;
 
         document.querySelectorAll(".feed-button").forEach(btn => {
-            btn.classList.toggle("active", btn.title === feedUrl);
+            btn.classList.toggle("active", btn.dataset.feedUrl === feedUrl);
         });
 
         await fetchAndDisplayNews(feedUrl, feedName);
-        prefetchOthers(); // selected feed is done: now warm all the others (no-op if already fresh)
+        prefetchOthers();
     }
-
-    // ========================
-    // Article Display
-    // ========================
 
     async function fetchAndDisplayNews(feedUrl, categoryName, { force = false } = {}) {
         const articlesArea = document.getElementById("articles-area");
@@ -284,7 +235,6 @@ const UI = (() => {
         const cached = state.allArticles[feedUrl];
 
         if (cached) {
-            // Instant render from cache; revalidate in the background only if stale
             displayPage(categoryName, feedUrl, 1);
             renderFeedButtons();
             if (isFresh(feedUrl) && !force) return;
@@ -295,7 +245,6 @@ const UI = (() => {
 
         try {
             const { failedUrls } = await loadFeedData(feedUrl, partial => {
-                // Progressive render: show first sources as soon as they arrive
                 if (!cached && token === loadToken) {
                     state.allArticles[feedUrl] = partial;
                     displayPage(categoryName, feedUrl, 1);
@@ -303,7 +252,7 @@ const UI = (() => {
             });
 
             renderFeedButtons();
-            if (token !== loadToken) return; // user already switched feeds
+            if (token !== loadToken) return;
 
             displayPage(categoryName, feedUrl, cached ? state.currentPage : 1);
 
@@ -389,7 +338,6 @@ const UI = (() => {
             articlesArea.appendChild(noResults);
         }
 
-        // Build in a fragment so the DOM is touched once
         const fragment = document.createDocumentFragment();
         pageEntries.forEach(article => {
             fragment.appendChild(buildArticleElement(article, searchTerm));
@@ -489,10 +437,6 @@ const UI = (() => {
         document.getElementById("pagination-area").innerHTML = "";
     }
 
-    // ========================
-    // Search
-    // ========================
-
     function onSearchInput() {
         const state = Config.getState();
         const term = document.getElementById("search-input").value.trim();
@@ -503,10 +447,6 @@ const UI = (() => {
             displayPage(state.activeFeedName || "Feed", state.activeFeedUrl, 1);
         }
     }
-
-    // ========================
-    // Refresh
-    // ========================
 
     async function manualRefresh() {
         const state = Config.getState();
@@ -523,10 +463,6 @@ const UI = (() => {
         refreshTimerId = setInterval(refreshActiveFeedSilently, Config.REFRESH_INTERVAL_MS);
     }
 
-    /**
-     * Background refresh: update the active feed (and warm the others),
-     * swallowing errors. Skipped while the tab is hidden.
-     */
     async function refreshActiveFeedSilently() {
         if (document.hidden) return;
         const state = Config.getState();
@@ -552,10 +488,6 @@ const UI = (() => {
         }
     }
 
-    // ========================
-    // Theme Toggle
-    // ========================
-
     function toggleTheme() {
         const state = Config.getState();
         state.currentTheme = state.currentTheme === "dark" ? "light" : "dark";
@@ -563,26 +495,28 @@ const UI = (() => {
         Config.save();
     }
 
-    // ========================
-    // Initialization
-    // ========================
-
     function bindEventListeners() {
-        const on = (id, event, handler) => document.getElementById(id).addEventListener(event, handler);
+        const on = (id, event, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener(event, handler);
+        };
 
         on("btn-toggle-theme", "click", toggleTheme);
         on("btn-show-info", "click", () => Dialogs.openModal("info-modal"));
         on("btn-refresh", "click", manualRefresh);
 
         const searchInput = document.getElementById("search-input");
-        searchInput.addEventListener("input", onSearchInput);
-        searchInput.addEventListener("keydown", e => {
-            if (e.key === "Enter") onSearchInput();
-        });
+        if (searchInput) {
+            searchInput.addEventListener("input", onSearchInput);
+            searchInput.addEventListener("keydown", e => {
+                if (e.key === "Enter") onSearchInput();
+            });
+        }
 
         on("btn-manage-feeds", "click", Dialogs.openFeedManager);
         on("btn-edit-current-feed", "click", Dialogs.openEditCurrentFeed);
         on("btn-manage-config", "click", Dialogs.openConfigManager);
+        on("btn-footer-config", "click", Dialogs.openConfigManager);
 
         on("btn-feed-add", "click", Dialogs.openAddFeed);
         on("btn-feed-edit", "click", Dialogs.openEditFeed);
@@ -597,7 +531,6 @@ const UI = (() => {
         on("reset-config-confirm-input", "input", Dialogs.updateResetConfigConfirmButton);
         on("btn-reset-config-confirm", "click", Dialogs.performConfigReset);
 
-        // Returning to a tab that has gone stale: refresh right away
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden) {
                 const state = Config.getState();
@@ -611,7 +544,7 @@ const UI = (() => {
     }
 
     function init() {
-        Config.load(); // also restores the persisted article cache
+        Config.load();
         const state = Config.getState();
 
         Utils.applyTheme(state.currentTheme);
@@ -620,15 +553,17 @@ const UI = (() => {
         bindEventListeners();
         startAutoRefresh();
 
-        // Auto-load the 1st feed in the 1st row (sorted by row, then order);
-        // selectFeed then warms all the other feeds in the background.
         if (state.feeds.length > 0) {
             const firstFeed = sortedFeeds(state)[0];
             selectFeed(firstFeed.url, firstFeed.name);
         }
     }
 
-    document.addEventListener("DOMContentLoaded", init);
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
 
     return {
         renderFeedButtons,
