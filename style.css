@@ -1065,3 +1065,11 @@ footer a:hover {
         margin: 5px auto 20px auto;
     }
 }
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+}

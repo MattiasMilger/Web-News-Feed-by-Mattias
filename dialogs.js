@@ -555,7 +555,7 @@ const Dialogs = (() => {
 
     /**
      * Open the reset-config confirmation modal. Reached only via the
-     * discreet "Danger Zone" trigger in Import/Export. Requires typing
+     * discreet "Danger Zone" trigger in data config. Requires typing
      * RESET before the erase button becomes clickable, plus a final
      * native confirm() as a second gate against stray clicks.
      */
