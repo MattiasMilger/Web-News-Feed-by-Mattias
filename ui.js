@@ -525,7 +525,8 @@ const UI = (() => {
         on("btn-add-url", "click", () => Dialogs.addUrlRow(""));
 
         on("btn-export-config", "click", Dialogs.exportConfig);
-        on("btn-import-config", "click", Dialogs.triggerImport);
+        on("btn-import-config", "click", Dialogs.openImportConfigModal);
+        on("btn-import-config-confirm", "click", Dialogs.triggerImport);
         on("config-file-input", "change", Dialogs.handleImportFile);
         on("btn-reset-config-open", "click", Dialogs.openResetConfigModal);
         on("reset-config-confirm-input", "input", Dialogs.updateResetConfigConfirmButton);

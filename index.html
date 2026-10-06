@@ -98,14 +98,28 @@
             <p class="modal-subtitle">Configuration auto-saves to your browser.</p>
             <div class="config-button-group">
                 <button id="btn-export-config" class="modal-action-button">Export Config</button>
-                <button id="btn-import-config" class="modal-action-button">Import Config</button>
             </div>
             <div class="danger-zone-section">
+                <button id="btn-import-config" class="modal-action-button danger-button">Import Config</button>
                 <button id="btn-reset-config-open" class="modal-action-button danger-button">Reset Config</button>
             </div>
             <input type="file" id="config-file-input" accept=".json" class="hidden-file-input">
             <div class="modal-close-center">
                 <button class="modal-close-button centered" data-modal="config-modal">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Config Confirmation Modal -->
+    <div id="import-config-modal" class="modal hidden">
+        <div class="modal-content modal-small modal-danger">
+            <span class="close-button" data-modal="import-config-modal">&times;</span>
+            <h2>Import Config?</h2>
+            <p class="modal-subtitle">Importing replaces your current feeds and settings with the contents of the file you choose. Your current config will be lost unless you export it first.</p>
+            <div id="import-config-stats" class="info-section"></div>
+            <div class="modal-button-row">
+                <button id="btn-import-config-confirm" class="modal-action-button danger-button">Choose File</button>
+                <button class="modal-action-button" data-modal="import-config-modal">Cancel</button>
             </div>
         </div>
     </div>
@@ -169,7 +183,7 @@
                     <ul class="info-list">
                         <li><strong>Access</strong> - located in the site footer directly above the GitHub Repository link.</li>
                         <li><strong>Export Config</strong> - download your feeds and settings as a JSON file.</li>
-                        <li><strong>Import Config</strong> - load a previously exported config file.</li>
+                        <li><strong>Import Config</strong> - Replaces your current feeds and settings with a previously exported config file. You are asked to confirm before choosing a file.</li>
                         <li><strong>Reset Config</strong> - Permanently erases every feed and setting in this browser and restores the defaults. Requires typing <code>RESET</code> to confirm.</li>
                     </ul>
                 </div>

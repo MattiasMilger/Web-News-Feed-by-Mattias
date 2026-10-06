@@ -999,6 +999,10 @@ body.dark-mode .message-area.success {
     width: 100%;
 }
 
+.danger-zone-section .modal-action-button + .modal-action-button {
+    margin-top: 10px;
+}
+
 .reset-label {
     display: block;
     font-weight: bold;

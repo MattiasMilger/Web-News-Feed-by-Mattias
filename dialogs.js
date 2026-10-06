@@ -428,7 +428,16 @@ const Dialogs = (() => {
         Utils.showMessage("Config exported.", "success", 3000);
     }
 
+    function openImportConfigModal() {
+        const count = Config.getState().feeds.length;
+        document.getElementById("import-config-stats").textContent =
+            `Your current ${count} feed${count !== 1 ? "s" : ""} and all settings will be replaced by the contents of the file you choose.`;
+        closeModal("config-modal");
+        openModal("import-config-modal");
+    }
+
     function triggerImport() {
+        closeModal("import-config-modal");
         const fileInput = document.getElementById("config-file-input");
         fileInput.value = "";
         fileInput.click();
@@ -523,6 +532,7 @@ const Dialogs = (() => {
         addUrlRow,
         openConfigManager,
         exportConfig,
+        openImportConfigModal,
         triggerImport,
         handleImportFile,
         openResetConfigModal,
