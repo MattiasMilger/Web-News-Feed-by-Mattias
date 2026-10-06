@@ -26,9 +26,16 @@ const Dialogs = (() => {
 
         document.addEventListener("keydown", e => {
             if (e.key === "Escape") {
-                document.querySelectorAll(".modal:not(.hidden)").forEach(modal => {
-                    modal.classList.add("hidden");
+                const open = Array.from(document.querySelectorAll(".modal:not(.hidden)"));
+                if (open.length === 0) return;
+                // Topmost = highest z-index, then latest in the page
+                let top = open[0];
+                open.forEach(m => {
+                    const z = parseInt(getComputedStyle(m).zIndex, 10) || 0;
+                    const tz = parseInt(getComputedStyle(top).zIndex, 10) || 0;
+                    if (z >= tz) top = m;
                 });
+                top.classList.add("hidden");
             }
         });
 
@@ -432,7 +439,6 @@ const Dialogs = (() => {
         const count = Config.getState().feeds.length;
         document.getElementById("import-config-stats").textContent =
             `Your current ${count} feed${count !== 1 ? "s" : ""} and all settings will be replaced by the contents of the file you choose.`;
-        closeModal("config-modal");
         openModal("import-config-modal");
     }
 
@@ -486,7 +492,6 @@ const Dialogs = (() => {
         document.getElementById("reset-config-confirm-input").value = "";
         document.getElementById("btn-reset-config-confirm").disabled = true;
 
-        closeModal("config-modal");
         openModal("reset-config-modal");
         setTimeout(() => document.getElementById("reset-config-confirm-input").focus(), 50);
     }
@@ -515,6 +520,7 @@ const Dialogs = (() => {
         }
 
         closeModal("reset-config-modal");
+        closeModal("config-modal");
         Utils.showMessage("Config reset to defaults.", "success");
     }
 

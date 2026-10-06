@@ -496,6 +496,12 @@ body.dark-mode .message-area.success {
 }
 
 /* --- Modal Styles --- */
+/* Dialogs opened from Data Config must always stack above it */
+#import-config-modal,
+#reset-config-modal {
+    z-index: 1050;
+}
+
 .modal {
     position: fixed;
     z-index: 1000;
