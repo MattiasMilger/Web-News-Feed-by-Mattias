@@ -4,6 +4,7 @@
 
 const Utils = (() => {
     let datetimeTimerId = null;
+    let messageTimerId = null;
 
     function startDatetimeUpdater() {
         const el = document.getElementById("datetime-display");
@@ -42,18 +43,20 @@ const Utils = (() => {
         const area = document.getElementById("message-area");
         if (!area) return;
 
+        clearTimeout(messageTimerId);
         area.className = "message-area " + type;
         area.textContent = text;
         area.classList.remove("hidden");
 
         if (duration > 0) {
-            setTimeout(() => {
+            messageTimerId = setTimeout(() => {
                 area.classList.add("hidden");
             }, duration);
         }
     }
 
     function hideMessage() {
+        clearTimeout(messageTimerId);
         const area = document.getElementById("message-area");
         if (area) area.classList.add("hidden");
     }

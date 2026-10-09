@@ -253,16 +253,17 @@ h1 {
     margin-left: 7px;
     vertical-align: middle;
     flex-shrink: 0;
-    cursor: default;
+    cursor: inherit;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none; /* purely visual: not selectable, not a click target */
+    background-color: var(--summary-color); /* neutral grey: status not known yet */
 }
 
 .feed-button.loading .feed-status-dot {
     animation: feed-dot-pulse 0.9s ease-in-out infinite;
 }
 
-.feed-button.loading .feed-status-dot:not([class*="status-"]) {
-    background-color: var(--summary-color);
-}
 
 @keyframes feed-dot-pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
@@ -758,6 +759,9 @@ body.dark-mode .message-area.success {
 }
 
 .feed-list-status-dot {
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
     display: inline-block;
     width: 10px;
     height: 10px;

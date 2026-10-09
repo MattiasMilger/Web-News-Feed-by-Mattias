@@ -8,6 +8,19 @@
 const Config = (() => {
     const STORAGE_KEY = "newsfeed_config";
 
+    // ==========================================================
+    // REFRESH TIMING - change these to tune how often feeds update
+    // ==========================================================
+    const MINUTE = 60 * 1000;
+    // How often the app wakes up to check whether the open feed (and the others) went stale.
+    const REFRESH_INTERVAL_MS = 1 * MINUTE;
+    // How long fetched articles count as "fresh". Older feeds are refreshed by the check above.
+    const CACHE_TTL_MS = 15 * MINUTE;
+    // A feed is never auto-fetched again within this long after its last attempt
+    // (applies to clicking a feed, returning to the tab and the check above; the refresh button ignores it).
+    const AUTO_REFRESH_COOLDOWN_MS = 15 * MINUTE;
+    // ==========================================================
+
     // Application constants
     const MAX_ROWS = 10;
     const MIN_ROW = 1;
@@ -18,12 +31,10 @@ const Config = (() => {
     const ARTICLES_PER_PAGE = 12;
     const MAX_PAGES = 10;
     const FEED_FETCH_TIMEOUT = 15000; // 15 seconds
-    const REFRESH_INTERVAL_MS = 300000; // 5 minutes
 
     // Article cache: kept in memory and mirrored to localStorage so feeds
     // appear instantly after switching feeds or reloading the page.
     const CACHE_STORAGE_KEY = "newsfeed_cache";
-    const CACHE_TTL_MS = 300000;               // cached articles count as "fresh" for 5 minutes
     const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // persisted entries older than this are discarded on load
 
     // Default feeds (from standard-config.json)
@@ -330,7 +341,7 @@ const Config = (() => {
     return {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
-        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS,
+        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS, AUTO_REFRESH_COOLDOWN_MS,
         DEFAULT_FEEDS,
 
         load, save, getState,
