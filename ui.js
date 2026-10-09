@@ -11,6 +11,11 @@ const UI = (() => {
     const inflight = new Map();
     let loadToken = 0;
     let prefetchRunning = false;
+    let refreshingAll = false;
+
+    const REFRESH_ALL_WORKERS = 6;
+    const refreshing = new Set();   // feeds covered by a manual "refresh all" (shown as "Fetching news...")
+    const attemptedAt = {};         // feedUrl -> time of last fetch attempt (success or failure)
 
     function summarizeFetchResult(feedUrl, failedUrls) {
         const totalSources = RSS.parseFeedUrls(feedUrl).length;
@@ -27,6 +32,31 @@ const UI = (() => {
 
     function sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function isBusy() {
+        return refreshingAll || prefetchRunning || inflight.size > 0;
+    }
+
+    function isFeedLoading(feedUrl) {
+        return inflight.has(feedUrl) || refreshing.has(feedUrl);
+    }
+
+    /** Refresh button is unavailable while ANY feed is being fetched; feed buttons pulse while loading. */
+    function updateRefreshButton() {
+        const btn = document.getElementById("btn-refresh");
+        if (btn) {
+            const busy = isBusy();
+            btn.disabled = busy;
+            btn.title = busy ? "Refreshing..." : "Refresh all feeds";
+        }
+        document.querySelectorAll(".feed-button").forEach(b => {
+            b.classList.toggle("loading", isFeedLoading(b.dataset.feedUrl));
+        });
+    }
+
+    function recentlyTried(feedUrl) {
+        return Date.now() - (attemptedAt[feedUrl] || 0) < Config.CACHE_TTL_MS;
     }
 
     function sortedFeeds(state) {
@@ -92,9 +122,14 @@ const UI = (() => {
                     updateFeedDots();
                     throw err;
                 })
-                .finally(() => inflight.delete(feedUrl));
+                .finally(() => {
+                    attemptedAt[feedUrl] = Date.now();
+                    inflight.delete(feedUrl);
+                    updateRefreshButton();
+                });
 
             inflight.set(feedUrl, job);
+            updateRefreshButton();
         }
 
         if (onPartial) {
@@ -106,12 +141,13 @@ const UI = (() => {
     }
 
     async function prefetchOthers() {
-        if (prefetchRunning) return;
+        if (prefetchRunning || refreshingAll) return;
         prefetchRunning = true;
+        updateRefreshButton();
 
         const state = Config.getState();
         const queue = sortedFeeds(state)
-            .filter(f => f.url !== state.activeFeedUrl && !isFresh(f.url));
+            .filter(f => f.url !== state.activeFeedUrl && !isFresh(f.url) && !recentlyTried(f.url));
 
         const worker = async () => {
             while (queue.length > 0) {
@@ -131,6 +167,7 @@ const UI = (() => {
             await Promise.all(Array.from({ length: PREFETCH_WORKERS }, worker));
         } finally {
             prefetchRunning = false;
+            updateRefreshButton();
         }
     }
 
@@ -207,6 +244,9 @@ const UI = (() => {
         if (feed.url === state.activeFeedUrl) {
             btn.classList.add("active");
         }
+        if (isFeedLoading(feed.url)) {
+            btn.classList.add("loading");
+        }
 
         btn.addEventListener("click", () => selectFeed(feed.url, feed.name));
         return btn;
@@ -222,30 +262,62 @@ const UI = (() => {
             btn.classList.toggle("active", btn.dataset.feedUrl === feedUrl);
         });
 
+        updateRefreshButton();
         await fetchAndDisplayNews(feedUrl, feedName);
         prefetchOthers();
     }
 
-    async function fetchAndDisplayNews(feedUrl, categoryName, { force = false } = {}) {
+    function showLoading() {
+        document.getElementById("articles-area").innerHTML = '<p class="loading-text">Fetching news...</p>';
+        document.getElementById("pagination-area").classList.add("hidden");
+    }
+
+    /** Redraw the active feed's area from current state (loading / failed / articles). */
+    function renderActive() {
+        const state = Config.getState();
+        const url = state.activeFeedUrl;
+        if (!url) return;
+
+        if (refreshing.has(url)) {
+            showLoading();
+            return;
+        }
+
+        const status = state.feedStatus[url];
+        if (!state.allArticles[url] && status && status.status === "error") {
+            document.getElementById("articles-area").innerHTML =
+                '<p class="placeholder-text">Failed to load feed. Check the URL or try again later.</p>';
+            document.getElementById("pagination-area").classList.add("hidden");
+            return;
+        }
+
+        displayPage(state.activeFeedName || "Feed", url, state.currentPage);
+    }
+
+    async function fetchAndDisplayNews(feedUrl, categoryName) {
         const articlesArea = document.getElementById("articles-area");
-        const paginationArea = document.getElementById("pagination-area");
         const state = Config.getState();
         const token = ++loadToken;
+
+        // Part of a running "refresh all": keep showing the loading state until it completes
+        if (refreshing.has(feedUrl)) {
+            showLoading();
+            return;
+        }
 
         const cached = state.allArticles[feedUrl];
 
         if (cached) {
             displayPage(categoryName, feedUrl, 1);
             renderFeedButtons();
-            if (isFresh(feedUrl) && !force) return;
+            if (isFresh(feedUrl)) return;
         } else {
-            articlesArea.innerHTML = '<p class="loading-text">Fetching news...</p>';
-            paginationArea.classList.add("hidden");
+            showLoading();
         }
 
         try {
             const { failedUrls } = await loadFeedData(feedUrl, partial => {
-                if (!cached && token === loadToken) {
+                if (!cached && token === loadToken && !refreshing.has(feedUrl)) {
                     state.allArticles[feedUrl] = partial;
                     displayPage(categoryName, feedUrl, 1);
                 }
@@ -450,12 +522,53 @@ const UI = (() => {
 
     async function manualRefresh() {
         const state = Config.getState();
-        if (!state.activeFeedUrl) {
-            Utils.showMessage("No active feed to refresh.", "info");
+        if (isBusy()) return;
+        if (state.feeds.length === 0) {
+            Utils.showMessage("No feeds to refresh.", "info");
             return;
         }
-        await fetchAndDisplayNews(state.activeFeedUrl, state.activeFeedName || "Feed", { force: true });
-        Utils.showMessage("Feed refreshed.", "success", 3000);
+
+        refreshingAll = true;
+        state.feeds.forEach(f => refreshing.add(f.url));
+        updateRefreshButton();
+        renderActive(); // active feed switches to "Fetching news..." right away
+
+        const active = state.activeFeedUrl;
+        const queue = sortedFeeds(state)
+            .sort((a, b) => (a.url === active ? -1 : 0) - (b.url === active ? -1 : 0)); // active feed first
+        const problems = [];
+
+        const worker = async () => {
+            while (queue.length > 0) {
+                const feed = queue.shift();
+                try {
+                    const { failedUrls } = await loadFeedData(feed.url, null, { gentle: feed.url !== active });
+                    if (failedUrls.length > 0) problems.push(feed.name);
+                } catch {
+                    problems.push(feed.name);
+                } finally {
+                    refreshing.delete(feed.url);
+                    if (Config.getState().activeFeedUrl === feed.url) renderActive();
+                    updateRefreshButton();
+                }
+            }
+        };
+
+        try {
+            await Promise.all(Array.from({ length: Math.min(REFRESH_ALL_WORKERS, queue.length) }, worker));
+        } finally {
+            refreshingAll = false;
+            refreshing.clear();
+            renderFeedButtons();
+            renderActive();
+            updateRefreshButton();
+        }
+
+        if (problems.length > 0) {
+            Utils.showMessage(`Refreshed, but some sources failed: ${problems.join(", ")}`, "warning", 6000);
+        } else {
+            Utils.showMessage("All feeds refreshed.", "success", 3000);
+        }
     }
 
     function startAutoRefresh() {
@@ -464,7 +577,7 @@ const UI = (() => {
     }
 
     async function refreshActiveFeedSilently() {
-        if (document.hidden) return;
+        if (document.hidden || refreshingAll) return;
         const state = Config.getState();
         const url = state.activeFeedUrl;
         if (!url) return;
@@ -473,7 +586,7 @@ const UI = (() => {
             await loadFeedData(url);
             if (state.activeFeedUrl === url) {
                 renderFeedButtons();
-                displayPage(state.activeFeedName || "Feed", url, state.currentPage);
+                renderActive();
             }
         } catch {
             // Silent fail on auto-refresh
@@ -535,7 +648,7 @@ const UI = (() => {
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden) {
                 const state = Config.getState();
-                if (state.activeFeedUrl && !isFresh(state.activeFeedUrl)) {
+                if (state.activeFeedUrl && !isFresh(state.activeFeedUrl) && !recentlyTried(state.activeFeedUrl)) {
                     refreshActiveFeedSilently();
                 } else {
                     prefetchOthers();
@@ -552,6 +665,7 @@ const UI = (() => {
         Dialogs.initCloseButtons();
         renderFeedButtons();
         bindEventListeners();
+        updateRefreshButton();
         startAutoRefresh();
 
         if (state.feeds.length > 0) {

@@ -49,6 +49,10 @@ const RSS = (() => {
     const PROXY_COOLDOWN_MS = 30000;
     const URL_STAGGER_MS = 150;
     const RETRY_TIMEOUT = 12000;
+    const FIRST_PASS_BUDGET = 20000;  // max total time for the first attempt at one URL
+    const GENTLE_BUDGET = 20000;
+    const RETRY_BUDGET = 10000;       // max total time for the retry
+    const RETRY_MAX_PROXIES = 3;
     const STATS_KEY = "newsfeed_proxy_stats_v2";
     const STATS_MAX_AGE_MS = 30 * 60 * 1000;
 
@@ -256,7 +260,7 @@ const RSS = (() => {
     }
 
     function fetchSingleFeed(url, opts) {
-        const { gentle = false, ignoreCooldown = false, maxProxies = Infinity, timeout = FETCH_TIMEOUT } = opts || {};
+        const { gentle = false, ignoreCooldown = false, maxProxies = Infinity, timeout = FETCH_TIMEOUT, budget = 0 } = opts || {};
         const proxies = orderedProxies(ignoreCooldown).slice(0, maxProxies);
         const maxParallel = gentle ? 1 : MAX_PARALLEL_PER_URL;
 
@@ -268,11 +272,13 @@ const RSS = (() => {
             let failed = 0;
             let inFlight = 0;
             let hedgeTimer = null;
+            let budgetTimer = null;
 
             function finish(fn, value) {
                 if (settled) return;
                 settled = true;
                 clearTimeout(hedgeTimer);
+                clearTimeout(budgetTimer);
                 controllers.forEach(c => c.abort());
                 fn(value);
             }
@@ -313,6 +319,14 @@ const RSS = (() => {
                 }
             }
 
+            if (budget > 0) {
+                budgetTimer = setTimeout(() => {
+                    finish(reject, new Error(
+                        `Gave up on ${extractDomain(url)} after ${Math.round(budget / 1000)}s` +
+                        (errors.length ? `: ${errors.join(", ")}` : "")));
+                }, budget);
+            }
+
             startNext();
         });
     }
@@ -341,7 +355,10 @@ const RSS = (() => {
         async function loadOne(u) {
             const notify = ok => { if (opts && opts.onSource) opts.onSource(u, ok); };
             try {
-                accept(await fetchSingleFeed(u, { gentle, ignoreCooldown: gentle }));
+                accept(await fetchSingleFeed(u, {
+                    gentle, ignoreCooldown: gentle,
+                    budget: gentle ? GENTLE_BUDGET : FIRST_PASS_BUDGET
+                }));
                 notify(true);
                 return;
             } catch {
@@ -353,7 +370,8 @@ const RSS = (() => {
             }
             try {
                 accept(await fetchSingleFeed(u, {
-                    gentle: true, ignoreCooldown: true, timeout: RETRY_TIMEOUT
+                    gentle: true, ignoreCooldown: true, timeout: RETRY_TIMEOUT,
+                    maxProxies: RETRY_MAX_PROXIES, budget: RETRY_BUDGET
                 }));
                 notify(true);
             } catch {

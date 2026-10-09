@@ -145,8 +145,13 @@ h1 {
     transition: background-color 0.2s, color 0.2s, border-color 0.2s;
 }
 
-.control-button:hover {
+.control-button:hover:not(:disabled) {
     background-color: var(--select-bg);
+}
+
+.control-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .accent-button {
@@ -249,6 +254,19 @@ h1 {
     vertical-align: middle;
     flex-shrink: 0;
     cursor: default;
+}
+
+.feed-button.loading .feed-status-dot {
+    animation: feed-dot-pulse 0.9s ease-in-out infinite;
+}
+
+.feed-button.loading .feed-status-dot:not([class*="status-"]) {
+    background-color: var(--summary-color);
+}
+
+@keyframes feed-dot-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.25; transform: scale(0.7); }
 }
 
 .feed-status-dot.status-ok {
