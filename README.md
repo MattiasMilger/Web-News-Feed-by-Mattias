@@ -19,9 +19,9 @@ Open `index.html` in a modern browser. No build tools or dependencies required.
 - **Pagination** - Articles displayed 12 per page, up to 10 pages per feed.
 - **Live Search** - Filter and highlight articles by keyword in real-time.
 - **Dark / Light Theme** - Toggle between dark and light modes (dark by default).
-- **Refresh Button** - The refresh button (&#x21BB;) re-fetches every feed immediately, ignoring cache and cooldowns. It is disabled while any feed is loading.
-- **Auto-Refresh** - A feed refreshes in the background only when its articles are older than 15 minutes, and never more than once per 15 minutes (feed clicks, returning to the tab and a 1-minute background check all follow the same rule). The timings are constants at the top of `config.js`.
-- **Article Cache** - Loaded feeds are cached (in memory and `localStorage`), so switching feeds or reloading shows articles instantly; stale feeds refresh in the background.
+- **Refresh Button** - The refresh button (&#x21BB;) re-fetches every feed immediately, ignoring the cache and retry waits. Articles stay on screen and update in place. It is only disabled while it is running; its tooltip shows how old the open feed is.
+- **Auto-Refresh** - A feed refreshes in the background once its articles are older than 15 minutes (feed clicks, returning to the tab and a 1-minute background check all follow the same rule). A feed that fails is retried after 1 minute, then 2, 4, 8... up to 15 minutes. Nothing is fetched while offline, and everything catches up when the connection returns. If you have scrolled down, new articles wait until you are back at the top. The timings are constants at the top of `config.js`.
+- **Article Cache** - Loaded feeds are cached (in memory and `localStorage`), so switching feeds or reloading shows articles instantly; stale feeds refresh in the background while their old articles stay visible. "Fetching news..." only appears when a feed has nothing to show yet.
 - **data config** - Export, import, or reset your configuration via JSON files, accessible in the site footer directly above the repository link.
 - **Persistent Storage** - All settings saved in your browser's `localStorage`.
 - **Responsive Design** - Works on desktop and mobile devices.
@@ -55,7 +55,7 @@ Web News Feed by Mattias/
 
 1. **Configuration** loads from `localStorage` on startup. If none exists, default feeds (Cyberthreats, AI, IT General) are loaded.
 2. **Feed buttons** are rendered in rows, sorted by each feed's row (1-10) then order (1-10) within that row.
-3. Clicking a feed button shows its cached articles immediately. If they are older than 15 minutes and the feed has not been tried in the last 15 minutes, the RSS URLs are fetched through **CORS proxies** (with automatic fallback) since browsers block direct cross-origin requests; while that fetch runs the feed shows "Fetching news..." instead of its old articles. A feed that failed shows a note and is not re-searched on every click - use the refresh button to retry at once.
+3. Clicking a feed button shows its cached articles immediately. If they are older than 15 minutes (and the feed is not waiting to retry after a failure), the RSS URLs are fetched through **CORS proxies** (with automatic fallback) since browsers block direct cross-origin requests; the old articles stay on screen, the feed's dot pulses, and the list updates in place when the fetch finishes. A feed with nothing cached shows "Fetching news..." (and its first articles as soon as one source answers). A failed feed is retried automatically with a growing wait (1, 2, 4, 8... up to 15 minutes) - use the refresh button to retry at once.
 4. The XML response is parsed client-side using `DOMParser`, supporting both RSS 2.0 and Atom formats.
 5. Articles are sorted by publication date (newest first) and displayed with **pagination** (12 per page, max 10 pages).
 6. The **search box** filters articles in real-time and highlights matching text.
@@ -66,7 +66,7 @@ Web News Feed by Mattias/
 
 - **No external dependencies** - pure vanilla HTML, CSS, and JavaScript.
 - **CORS Proxies** - Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`, and others). The proxy that worked last is tried first, and a slow proxy is raced by the next one after 4 seconds rather than waited on.
-- **Caching** - Completed fetches are kept per feed for 15 minutes (fresh) and up to 24 hours (still shown, and refreshed when stale). A feed switched away from mid-load keeps loading and is cached when it finishes. If a source in an amalgamated feed fails, its previously cached articles are kept.
+- **Caching** - Completed fetches are kept per feed for 15 minutes (fresh) and up to 24 hours (still shown, and refreshed when stale). A feed switched away from mid-load keeps loading and is cached when it finishes. If a source in an amalgamated feed fails, its previously cached articles are kept. Writes to `localStorage` are batched (and flushed when the page is hidden or closed) so several feeds finishing together do not stall the page.
 - **localStorage** - Configuration (`newsfeed_config`) and the article cache (`newsfeed_cache`) persist in the browser. Clearing browser data will reset feeds to defaults.
 
 ## Browser Support

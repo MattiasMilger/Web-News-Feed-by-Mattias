@@ -1,5 +1,14 @@
 /**
  * ui.js - Main UI rendering and interaction
+ *
+ * HOW FEEDS REFRESH (four plain rules)
+ *  1. What you see never disappears: a feed always shows its last articles (from the cache)
+ *     while it refreshes. "Fetching news..." only appears when there is nothing to show yet.
+ *  2. A feed refreshes by itself once its articles are older than 15 minutes - when you open
+ *     it, return to the tab, or on the 1-minute check. Its dot pulses while this happens.
+ *  3. After a failure a feed is retried automatically after 1 minute, then 2, 4, 8 ... up to
+ *     15 minutes, so a dead feed never hammers the proxies. Nothing is fetched while offline.
+ *  4. The refresh button (↻) always refreshes every feed right now.
  */
 
 const UI = (() => {
@@ -7,15 +16,18 @@ const UI = (() => {
 
     const PREFETCH_GAP_MS = 100;
     const PREFETCH_WORKERS = 4;
+    const REFRESH_ALL_WORKERS = 6;
+    const READING_SCROLL_PX = 200;   // scrolled further down than this = "reading"; don't swap the list under the reader
 
-    const inflight = new Map();
+    const inflight = new Map();      // feedUrl -> { latest, promise }  (one fetch per feed at a time)
+    const refreshing = new Set();    // feeds covered by a running "refresh all" (their dots pulse)
+    const failures = {};             // feedUrl -> { count, at }  consecutive failed fetches (drives the retry wait)
     let prefetchRunning = false;
     let refreshingAll = false;
 
-    const REFRESH_ALL_WORKERS = 6;
-    const refreshing = new Set();   // feeds covered by a manual "refresh all" (shown as "Fetching news...")
-    const attemptedAt = {};         // feedUrl -> time of last fetch attempt (success or failure)
-    const quiet = new Set();        // background refreshes of the open feed: keep its articles on screen
+    // What is currently drawn in the articles area (lets us skip pointless redraws).
+    let lastRender = { kind: null, url: null, key: "" };
+    let deferredUpdate = false;      // fresh data arrived while the user was reading further down
 
     function summarizeFetchResult(feedUrl, failedUrls) {
         const totalSources = RSS.parseFeedUrls(feedUrl).length;
@@ -34,65 +46,86 @@ const UI = (() => {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    function isBusy() {
-        return refreshingAll || prefetchRunning || inflight.size > 0;
+    function isOffline() {
+        return navigator.onLine === false;
     }
 
+    function isConfigured(feedUrl) {
+        return Config.getState().feeds.some(f => f.url === feedUrl);
+    }
+
+    /** True while a feed is being fetched (single fetch or part of a "refresh all"). Drives the pulsing dot. */
     function isFeedLoading(feedUrl) {
         return inflight.has(feedUrl) || refreshing.has(feedUrl);
     }
 
-    /**
-     * A feed that is not loading yet but is about to be: another feed is loading and it
-     * is stale, so the background loader will get to it. Visual only (dots pulse).
-     */
-    function isWaitingForLoad(feedUrl) {
-        const active = Config.getState().activeFeedUrl;
-        if (feedUrl === active || !needsRefresh(feedUrl)) return false;
-        return prefetchRunning || (!!active && inflight.has(active));
+    function isFresh(feedUrl) {
+        const state = Config.getState();
+        return !!state.allArticles[feedUrl] && Config.isCacheFresh(feedUrl);
     }
 
-    function isDotLoading(feedUrl) {
-        return isFeedLoading(feedUrl) || isWaitingForLoad(feedUrl);
+    /** How long to wait before retrying a feed that failed `count` times in a row. */
+    function retryDelay(count) {
+        return Math.min(Config.RETRY_BACKOFF_START_MS * Math.pow(2, Math.max(count, 1) - 1), Config.CACHE_TTL_MS);
     }
 
-    /** Refresh button is unavailable while ANY feed is being fetched; feed buttons pulse while loading. */
+    function isWaitingToRetry(feedUrl) {
+        const f = failures[feedUrl];
+        return !!f && Date.now() - f.at < retryDelay(f.count);
+    }
+
+    /** The one automatic-refresh rule, used by clicks, tab returns, the timer and background prefetch. */
+    function needsRefresh(feedUrl) {
+        return !isOffline() && !isFresh(feedUrl) && !isWaitingToRetry(feedUrl);
+    }
+
+    /** What the feed can show right now: its cached articles, or partial results of a first load. */
+    function getArticles(feedUrl) {
+        const cached = Config.getState().allArticles[feedUrl];
+        if (cached) return cached;
+        const job = inflight.get(feedUrl);
+        return job && job.latest ? job.latest : null;
+    }
+
+    function describeAge(timestamp) {
+        if (!timestamp) return "not loaded yet";
+        const minutes = Math.floor((Date.now() - timestamp) / 60000);
+        if (minutes < 1) return "updated just now";
+        if (minutes < 60) return `updated ${minutes} min ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `updated ${hours} h ago`;
+        return `updated ${Math.floor(hours / 24)} d ago`;
+    }
+
+    /** Refresh-button tooltip (no layout change): says how old the open feed is. */
+    function updateRefreshTitle() {
+        const btn = document.getElementById("btn-refresh");
+        if (!btn) return;
+        if (refreshingAll) {
+            btn.title = "Refreshing all feeds...";
+            return;
+        }
+        const state = Config.getState();
+        const url = state.activeFeedUrl;
+        btn.title = url
+            ? `Refresh all feeds - open feed ${describeAge(state.fetchedAt[url])}`
+            : "Refresh all feeds";
+    }
+
+    /** The refresh button is only unavailable during its own run; feed dots pulse while their feed loads. */
     function updateRefreshButton() {
         const btn = document.getElementById("btn-refresh");
-        if (btn) {
-            const busy = isBusy();
-            btn.disabled = busy;
-            btn.title = busy ? "Refreshing..." : "Refresh all feeds";
-        }
+        if (btn) btn.disabled = refreshingAll;
+        updateRefreshTitle();
         document.querySelectorAll(".feed-button").forEach(b => {
-            b.classList.toggle("loading", isDotLoading(b.dataset.feedUrl));
+            b.classList.toggle("loading", isFeedLoading(b.dataset.feedUrl));
         });
-    }
-
-    /** Tried (successfully or not) within the cooldown: never auto-fetch it again yet. */
-    function recentlyTried(feedUrl) {
-        return Date.now() - (attemptedAt[feedUrl] || 0) < Config.AUTO_REFRESH_COOLDOWN_MS;
-    }
-
-    /** Auto-fetch rule used by clicks, tab returns, the timer and background prefetch. */
-    function needsRefresh(feedUrl) {
-        return !isFresh(feedUrl) && !recentlyTried(feedUrl);
-    }
-
-    /** True when the feed's area should show "Fetching news..." instead of articles. */
-    function isLoadingVisible(feedUrl) {
-        return refreshing.has(feedUrl) || (inflight.has(feedUrl) && !quiet.has(feedUrl));
     }
 
     function sortedFeeds(state) {
         return state.feeds
             .slice()
             .sort((a, b) => (a.row || 1) - (b.row || 1) || (a.order || 1) - (b.order || 1));
-    }
-
-    function isFresh(feedUrl) {
-        const state = Config.getState();
-        return !!state.allArticles[feedUrl] && Config.isCacheFresh(feedUrl);
     }
 
     function keepFailedSources(feedUrl, result) {
@@ -105,73 +138,92 @@ const UI = (() => {
             .slice(0, Config.MAX_ENTRIES_PER_FEED);
     }
 
+    /** Used by the feed dialog after it has validated a feed: store the result as a completed fetch. */
     function storeFeedResult(feedUrl, articles, failedUrls) {
-        attemptedAt[feedUrl] = Date.now();
+        delete failures[feedUrl];
         Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, failedUrls || []));
         updateFeedDots();
     }
 
-    function loadFeedData(feedUrl, onPartial, opts) {
-        let job = inflight.get(feedUrl);
+    /**
+     * Fetch one feed (at most one fetch per feed at a time - asking again joins the running one).
+     * The old articles stay in place until the new ones are complete; when the open feed is done
+     * (or fails) the screen is brought up to date.
+     */
+    function loadFeedData(feedUrl, opts) {
+        const running = inflight.get(feedUrl);
+        if (running) return running.promise;
 
-        if (!job) {
-            job = { listeners: new Set(), latest: null, promise: null };
-            const state = Config.getState();
+        const job = { latest: null, promise: null };
+        const state = Config.getState();
 
-            const totalSources = RSS.parseFeedUrls(feedUrl).length;
-            const failedSoFar = [];
-            let doneSoFar = 0;
+        const totalSources = RSS.parseFeedUrls(feedUrl).length;
+        const failedSoFar = [];
+        let doneSoFar = 0;
 
-            const fetchOpts = Object.assign({}, opts, {
-                onSource: (url, ok) => {
-                    doneSoFar++;
-                    if (!ok) failedSoFar.push(url);
-                    if (failedSoFar.length > 0 || doneSoFar === totalSources) {
-                        state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, failedSoFar.slice());
-                        updateFeedDots();
-                    }
-                }
-            });
-
-            job.promise = RSS.fetchFeedEntries(feedUrl, undefined, partial => {
-                job.latest = partial;
-                job.listeners.forEach(fn => fn(partial));
-            }, fetchOpts)
-                .then(result => {
-                    const articles = keepFailedSources(feedUrl, result);
-                    Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, result.failedUrls));
+        const fetchOpts = Object.assign({}, opts, {
+            onSource: (url, ok) => {
+                doneSoFar++;
+                if (!ok) failedSoFar.push(url);
+                if (failedSoFar.length > 0 || doneSoFar === totalSources) {
+                    state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, failedSoFar.slice());
                     updateFeedDots();
-                    return { articles, failedUrls: result.failedUrls };
-                })
-                .catch(err => {
+                }
+            }
+        });
+
+        job.promise = RSS.fetchFeedEntries(feedUrl, undefined, partial => {
+            job.latest = partial;
+            // First load of a feed that has nothing to show yet: reveal articles as soon as the first source answers.
+            if (!state.allArticles[feedUrl] && state.activeFeedUrl === feedUrl) renderActive();
+        }, fetchOpts)
+            .then(result => {
+                delete failures[feedUrl];
+                if (!isConfigured(feedUrl)) return result; // feed was removed or edited meanwhile: don't cache it
+                const articles = keepFailedSources(feedUrl, result);
+                Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, result.failedUrls));
+                updateFeedDots();
+                return { articles, failedUrls: result.failedUrls };
+            })
+            .catch(err => {
+                // A failure while offline says nothing about the feed: leave its status and retry timer alone.
+                if (!isOffline()) {
+                    const previous = failures[feedUrl];
+                    failures[feedUrl] = { count: previous ? previous.count + 1 : 1, at: Date.now() };
                     state.feedStatus[feedUrl] = { status: "error", failedUrls: RSS.parseFeedUrls(feedUrl) };
                     updateFeedDots();
-                    throw err;
-                })
-                .finally(() => {
-                    attemptedAt[feedUrl] = Date.now();
-                    inflight.delete(feedUrl);
-                    quiet.delete(feedUrl);
-                    updateRefreshButton();
-                    if (Config.getState().activeFeedUrl === feedUrl) renderActive();
-                });
+                }
+                throw err;
+            })
+            .finally(() => {
+                inflight.delete(feedUrl);
+                updateRefreshButton();
+                if (Config.getState().activeFeedUrl === feedUrl) onOpenFeedUpdated();
+            });
 
-            inflight.set(feedUrl, job);
-            updateRefreshButton();
-        }
-
-        if (onPartial) {
-            job.listeners.add(onPartial);
-            if (job.latest) onPartial(job.latest);
-        }
-
+        inflight.set(feedUrl, job);
+        updateRefreshButton();
         return job.promise;
+    }
+
+    /** True when the user is reading the open feed further down the page (don't yank the list around). */
+    function userIsReading(feedUrl) {
+        return lastRender.kind === "articles" && lastRender.url === feedUrl && window.scrollY > READING_SCROLL_PX;
+    }
+
+    /** The open feed just finished loading: update the screen now, or when the reader is back at the top. */
+    function onOpenFeedUpdated() {
+        const url = Config.getState().activeFeedUrl;
+        if (userIsReading(url)) {
+            deferredUpdate = true;
+        } else {
+            renderActive();
+        }
     }
 
     async function prefetchOthers() {
         if (prefetchRunning || refreshingAll) return;
         prefetchRunning = true;
-        updateRefreshButton();
 
         const state = Config.getState();
         const queue = sortedFeeds(state)
@@ -179,11 +231,11 @@ const UI = (() => {
 
         const worker = async () => {
             while (queue.length > 0) {
-                if (document.hidden) return;
+                if (document.hidden || isOffline()) return;
                 const feed = queue.shift();
                 if (!needsRefresh(feed.url)) continue;
                 try {
-                    await loadFeedData(feed.url, null, { gentle: true });
+                    await loadFeedData(feed.url, { gentle: true });
                 } catch {
                     /* ignore */
                 }
@@ -195,7 +247,6 @@ const UI = (() => {
             await Promise.all(Array.from({ length: PREFETCH_WORKERS }, worker));
         } finally {
             prefetchRunning = false;
-            updateRefreshButton();
         }
     }
 
@@ -272,7 +323,7 @@ const UI = (() => {
         if (feed.url === state.activeFeedUrl) {
             btn.classList.add("active");
         }
-        if (isDotLoading(feed.url)) {
+        if (isFeedLoading(feed.url)) {
             btn.classList.add("loading");
         }
 
@@ -280,7 +331,7 @@ const UI = (() => {
         return btn;
     }
 
-    async function selectFeed(feedUrl, feedName) {
+    function selectFeed(feedUrl, feedName) {
         const state = Config.getState();
         state.activeFeedUrl = feedUrl;
         state.activeFeedName = feedName;
@@ -290,81 +341,98 @@ const UI = (() => {
             btn.classList.toggle("active", btn.dataset.feedUrl === feedUrl);
         });
 
-        // Clicking a feed shows exactly what it has. It only fetches when its articles
-        // are stale AND it has not been tried within the cooldown (so clicking a red
-        // feed over and over does not re-search every time).
+        // Opening a feed shows what it has, instantly. If that is stale it refreshes in the background
+        // and updates in place; a feed that has nothing yet shows "Fetching news..." until it has articles.
         if (!isFeedLoading(feedUrl) && needsRefresh(feedUrl)) {
-            await autoRefreshFeed(feedUrl, false);
-        } else {
-            renderActive();
+            refreshFeed(feedUrl, true);
         }
+        renderActive();
         updateRefreshButton();
         prefetchOthers();
     }
 
     function showLoading() {
+        deferredUpdate = false;
+        lastRender = { kind: "loading", url: Config.getState().activeFeedUrl, key: "" };
         document.getElementById("articles-area").innerHTML = '<p class="loading-text">Fetching news...</p>';
         document.getElementById("pagination-area").classList.add("hidden");
     }
 
-    function showFailed() {
-        document.getElementById("articles-area").innerHTML =
-            '<p class="placeholder-text">Couldn\'t load this feed. It will be retried automatically later, ' +
-            'or press &#x21BB; to refresh everything now.</p>';
+    function showNote(html) {
+        deferredUpdate = false;
+        lastRender = { kind: "note", url: Config.getState().activeFeedUrl, key: html };
+        document.getElementById("articles-area").innerHTML = `<p class="placeholder-text">${html}</p>`;
         document.getElementById("pagination-area").classList.add("hidden");
     }
 
+    function renderKey(feedUrl, entries) {
+        const state = Config.getState();
+        let hash = 0;
+        for (const a of entries) {
+            const text = (a.link || "") + "\u0001" + a.title;
+            for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
+        }
+        return `${feedUrl}|${state.currentPage}|${state.searchTerm}|${entries.length}:${hash}`;
+    }
+
     /**
-     * Redraw the open feed from current state. One rule: while the feed is being
-     * fetched you see "Fetching news..." (never the old articles), otherwise you see
-     * its articles, or a failure note if it has none.
+     * Redraw the open feed from current state. One rule: show its articles if it has any
+     * (even while it refreshes); otherwise "Fetching news..." while loading, or a note
+     * explaining why there is nothing. If the screen already shows exactly this, leave it alone.
      */
     function renderActive() {
         const state = Config.getState();
         const url = state.activeFeedUrl;
         if (!url) return;
 
-        if (isLoadingVisible(url)) {
-            showLoading();
+        const articles = getArticles(url);
+        if (!articles) {
+            if (isFeedLoading(url)) {
+                showLoading();
+            } else if (isOffline()) {
+                showNote("You're offline. This feed will load as soon as you're back online.");
+            } else if (state.feedStatus[url] && state.feedStatus[url].status === "error") {
+                showNote("Couldn't load this feed. It will retry automatically, " +
+                    "or press &#x21BB; to try again right now.");
+            } else {
+                showLoading();
+            }
             return;
         }
 
-        const status = state.feedStatus[url];
-        if (!state.allArticles[url] && status && status.status === "error") {
-            showFailed();
-            return;
+        if (lastRender.kind === "articles" && lastRender.key === renderKey(url, articles)) {
+            deferredUpdate = false;
+            return; // identical to what is on screen: no flicker, scroll and selection stay put
         }
-
         displayPage(state.activeFeedName || "Feed", url, state.currentPage);
     }
 
     /**
-     * Fetch one feed because it went stale. isQuiet = a background refresh of the
-     * feed the user is reading: its articles stay put and update in place when done.
-     * Completion re-renders the feed (see loadFeedData).
+     * Refresh one feed because it went stale. The screen keeps showing its old articles and
+     * updates in place when done. `announce` = the user just opened this feed, so tell them if
+     * something went wrong; background refreshes (timer, tab return) stay silent (the dot shows it).
      */
-    async function autoRefreshFeed(feedUrl, isQuiet) {
+    async function refreshFeed(feedUrl, announce) {
         const state = Config.getState();
         const hadArticles = !!state.allArticles[feedUrl];
-        if (isQuiet && hadArticles) quiet.add(feedUrl);
-
-        const job = loadFeedData(feedUrl);
-        renderActive(); // shows "Fetching news..." right away unless quiet
+        const feed = state.feeds.find(f => f.url === feedUrl);
+        const name = feed ? feed.name : "feed";
 
         try {
-            const { failedUrls } = await job;
-            if (!isQuiet && state.activeFeedUrl === feedUrl && failedUrls.length > 0) {
+            const { failedUrls } = await loadFeedData(feedUrl);
+            if (announce && state.activeFeedUrl === feedUrl && failedUrls.length > 0) {
                 Utils.showMessage(
                     `${failedUrls.length} source(s) failed: ${failedUrls.map(RSS.extractDomain).join(", ")}`,
                     "warning", 6000
                 );
             }
-        } catch (err) {
-            if (!isQuiet && state.activeFeedUrl === feedUrl) {
+        } catch {
+            if (announce && state.activeFeedUrl === feedUrl && !isOffline()) {
                 if (hadArticles) {
                     Utils.showMessage("Couldn't update this feed - showing older articles.", "warning", 6000);
                 } else {
-                    Utils.showMessage(`Error fetching RSS: ${err.message}`, "error", 8000);
+                    const domains = RSS.parseFeedUrls(feedUrl).map(RSS.extractDomain).join(", ");
+                    Utils.showMessage(`Couldn't load ${name} - ${domains} not responding.`, "error", 8000);
                 }
             }
         }
@@ -407,12 +475,14 @@ const UI = (() => {
 
     function displayPage(categoryName, feedUrl, pageNumber) {
         const state = Config.getState();
-        const entries = state.allArticles[feedUrl] || [];
+        const entries = getArticles(feedUrl) || [];
         const searchTerm = state.searchTerm;
 
         const { pageNumber: currentPage, total, totalPages, pageEntries } =
             selectPageEntries(entries, searchTerm, pageNumber);
         state.currentPage = currentPage;
+        deferredUpdate = false;
+        lastRender = { kind: "articles", url: feedUrl, key: renderKey(feedUrl, entries) };
 
         const articlesArea = document.getElementById("articles-area");
         articlesArea.innerHTML = "";
@@ -529,6 +599,8 @@ const UI = (() => {
     }
 
     function clearArticles() {
+        deferredUpdate = false;
+        lastRender = { kind: null, url: null, key: "" };
         document.getElementById("articles-area").innerHTML =
             '<p class="placeholder-text">Select a feed to view articles.</p>';
         document.getElementById("pagination-area").classList.add("hidden");
@@ -540,25 +612,29 @@ const UI = (() => {
         const term = document.getElementById("search-input").value.trim();
         state.searchTerm = term;
 
-        if (state.activeFeedUrl && state.allArticles[state.activeFeedUrl] && !isLoadingVisible(state.activeFeedUrl)) {
+        if (state.activeFeedUrl && getArticles(state.activeFeedUrl)) {
             state.currentPage = 1;
             displayPage(state.activeFeedName || "Feed", state.activeFeedUrl, 1);
         }
     }
 
-    /** The "just refresh everything" button: ignores freshness and cooldowns entirely. */
+    /** The "refresh everything" button: ignores freshness and retry waits. Articles stay on screen and update in place. */
     async function manualRefresh() {
         const state = Config.getState();
-        if (isBusy()) return;
+        if (refreshingAll) return;
         if (state.feeds.length === 0) {
             Utils.showMessage("No feeds to refresh.", "info");
             return;
         }
+        if (isOffline()) {
+            Utils.showMessage("You're offline - can't refresh right now.", "warning", 4000);
+            return;
+        }
 
         refreshingAll = true;
+        Object.keys(failures).forEach(url => delete failures[url]); // a clean slate: everything is tried again
         state.feeds.forEach(f => refreshing.add(f.url));
         updateRefreshButton();
-        renderActive(); // open feed switches to "Fetching news..." right away
 
         const active = state.activeFeedUrl;
         const queue = sortedFeeds(state)
@@ -582,6 +658,7 @@ const UI = (() => {
                 } finally {
                     done++;
                     refreshing.delete(feed.url);
+                    // The user asked for this, so the open feed updates right away.
                     if (Config.getState().activeFeedUrl === feed.url) renderActive();
                     updateRefreshButton();
                     showProgress();
@@ -594,12 +671,13 @@ const UI = (() => {
         } finally {
             refreshingAll = false;
             refreshing.clear();
-            renderFeedButtons();
-            renderActive();
             updateRefreshButton();
+            renderActive();
         }
 
-        if (problems.length > 0) {
+        if (isOffline()) {
+            Utils.showMessage("You went offline - some feeds could not be refreshed.", "warning", 6000);
+        } else if (problems.length > 0) {
             Utils.showMessage(`Refreshed, but some sources failed: ${problems.join(", ")}`, "warning", 6000);
         } else {
             Utils.showMessage("All feeds refreshed.", "success", 3000);
@@ -611,14 +689,15 @@ const UI = (() => {
         refreshTimerId = setInterval(refreshStaleInBackground, Config.REFRESH_INTERVAL_MS);
     }
 
-    /** Timer / tab-return check: refreshes only feeds that are stale and outside their cooldown. */
+    /** Timer / tab-return / back-online check: refreshes only feeds that are stale and not waiting to retry. */
     function refreshStaleInBackground() {
         if (document.hidden || refreshingAll) return;
         const url = Config.getState().activeFeedUrl;
         if (url && !isFeedLoading(url) && needsRefresh(url)) {
-            autoRefreshFeed(url, true);
+            refreshFeed(url, false);
         }
         prefetchOthers();
+        updateRefreshTitle();
     }
 
     function stopAutoRefresh() {
@@ -644,6 +723,8 @@ const UI = (() => {
         on("btn-toggle-theme", "click", toggleTheme);
         on("btn-show-info", "click", () => Dialogs.openModal("info-modal"));
         on("btn-refresh", "click", manualRefresh);
+        on("btn-refresh", "mouseenter", updateRefreshTitle);
+        on("btn-refresh", "focus", updateRefreshTitle);
 
         const searchInput = document.getElementById("search-input");
         if (searchInput) {
@@ -675,6 +756,19 @@ const UI = (() => {
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden) refreshStaleInBackground();
         });
+
+        // Connection came back: forget old failures (they were probably the connection) and catch up.
+        window.addEventListener("online", () => {
+            Object.keys(failures).forEach(url => delete failures[url]);
+            refreshStaleInBackground();
+            renderActive();
+        });
+        window.addEventListener("offline", () => renderActive());
+
+        // Fresh articles that arrived while the reader was further down appear once they are back at the top.
+        window.addEventListener("scroll", () => {
+            if (deferredUpdate && window.scrollY <= 50) renderActive();
+        }, { passive: true });
     }
 
     function init() {

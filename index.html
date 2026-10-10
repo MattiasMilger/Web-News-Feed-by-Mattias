@@ -171,9 +171,9 @@
                     <strong>Reading</strong>
                     <ul class="info-list">
                         <li><strong>Pagination</strong> - articles are shown 12 per page, up to 10 pages per feed.</li>
-                        <li><strong>Refresh button (&#x21BB;)</strong> - re-fetches every feed right now, ignoring the cache. It is unavailable while any feed is loading.</li>
-                        <li><strong>Auto-refresh</strong> - a feed refreshes in the background only once its articles are older than 15 minutes, and never more than once per 15 minutes (clicking a feed, returning to the tab and the timer all follow this rule).</li>
-                        <li><strong>Caching</strong> - feeds open instantly from the cache. While a feed is being fetched you see "Fetching news..." instead of its old articles; a feed that failed shows a note instead of being re-searched on every click.</li>
+                        <li><strong>Refresh button (&#x21BB;)</strong> - re-fetches every feed right now, ignoring the cache and any retry wait. Articles stay on screen and update in place. It is only unavailable while it is running; hover it to see how old the open feed is.</li>
+                        <li><strong>Auto-refresh</strong> - a feed refreshes in the background once its articles are older than 15 minutes (when you open it, return to the tab, or on a 1-minute check). Its dot pulses while it loads. If you have scrolled down, new articles wait until you are back at the top so the list never moves under you. Nothing is fetched while you are offline.</li>
+                        <li><strong>Caching</strong> - feeds open instantly from the cache and keep showing their last articles while they refresh. "Fetching news..." only appears when a feed has nothing to show yet. A feed that fails is retried automatically after 1 minute, then 2, 4, 8... up to 15 minutes.</li>
                         <li><strong>Search</strong> - filter and highlight articles by keyword in real time.</li>
                         <li><strong>Click headlines</strong> - opens the full article in a new tab.</li>
                         <li><strong>Source badges</strong> - every article shows its source domain.</li>
@@ -220,6 +220,7 @@
             <button type="button" id="btn-footer-config" class="feed-manager-config-link">Data Config</button>
         </div>
         <p><a href="https://github.com/MattiasMilger/Web-News-Feed-by-Mattias" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+        <p class="footer-portfolio">More projects? <a href="https://mattiasmilger.github.io/" target="_blank" rel="noopener noreferrer">Visit my portfolio</a></p>
     </footer>
 
     <script src="config.js"></script>

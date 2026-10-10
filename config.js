@@ -14,11 +14,12 @@ const Config = (() => {
     const MINUTE = 60 * 1000;
     // How often the app wakes up to check whether the open feed (and the others) went stale.
     const REFRESH_INTERVAL_MS = 1 * MINUTE;
-    // How long fetched articles count as "fresh". Older feeds are refreshed by the check above.
+    // How long fetched articles count as "fresh". Older feeds are refreshed in the background.
     const CACHE_TTL_MS = 15 * MINUTE;
-    // A feed is never auto-fetched again within this long after its last attempt
-    // (applies to clicking a feed, returning to the tab and the check above; the refresh button ignores it).
-    const AUTO_REFRESH_COOLDOWN_MS = 15 * MINUTE;
+    // After a feed FAILS to load it is retried automatically after this long, and the wait
+    // doubles with every further failure in a row (1, 2, 4, 8 ... min), up to CACHE_TTL_MS.
+    // The refresh button ignores this and always retries at once.
+    const RETRY_BACKOFF_START_MS = 1 * MINUTE;
     // ==========================================================
 
     // Application constants
@@ -77,7 +78,7 @@ const Config = (() => {
         currentTheme: "dark",
         activeFeedUrl: null,
         activeFeedName: null,
-        allArticles: {},   // feedUrl -> articles (may briefly hold partial results while loading)
+        allArticles: {},   // feedUrl -> last completed articles (what the feed shows while it refreshes)
         fetchedAt: {},     // feedUrl -> timestamp of the last completed fetch (the real "cached" marker)
         feedStatus: {},    // feedUrl -> { status, failedUrls }
         currentPage: 1,
@@ -219,11 +220,35 @@ const Config = (() => {
     }
 
     /**
+     * Writing the whole cache is a big synchronous job, so several feeds finishing close
+     * together are saved in one go instead of once each (keeps the page smooth). The cache
+     * is also saved at once whenever the page is hidden or closed, so nothing is lost.
+     */
+    let cacheWriteTimer = null;
+    const CACHE_WRITE_DELAY_MS = 1000;
+
+    function scheduleCacheWrite() {
+        if (cacheWriteTimer) return;
+        cacheWriteTimer = setTimeout(flushCache, CACHE_WRITE_DELAY_MS);
+    }
+
+    function flushCache() {
+        if (!cacheWriteTimer) return;
+        clearTimeout(cacheWriteTimer);
+        cacheWriteTimer = null;
+        writeCache();
+    }
+
+    /**
      * Mirror completed fetches to localStorage. If the browser's quota is
      * hit, the oldest feeds are dropped until the rest fit. Only complete
      * results are persisted - partial results never get a fetchedAt.
      */
     function writeCache() {
+        if (cacheWriteTimer) {
+            clearTimeout(cacheWriteTimer);
+            cacheWriteTimer = null;
+        }
         const known = new Set(state.feeds.map(f => f.url));
         const urls = Object.keys(state.fetchedAt)
             .filter(url => known.has(url) && Array.isArray(state.allArticles[url]))
@@ -255,7 +280,7 @@ const Config = (() => {
         state.allArticles[feedUrl] = articles;
         state.fetchedAt[feedUrl] = Date.now();
         if (status) state.feedStatus[feedUrl] = status;
-        writeCache();
+        scheduleCacheWrite();
     }
 
     /**
@@ -334,6 +359,11 @@ const Config = (() => {
         return state;
     }
 
+    window.addEventListener("pagehide", flushCache);
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden) flushCache();
+    });
+
     function getFeedIndexByName(name) {
         return state.feeds.findIndex(f => f.name === name);
     }
@@ -341,11 +371,11 @@ const Config = (() => {
     return {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
-        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS, AUTO_REFRESH_COOLDOWN_MS,
+        FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS, RETRY_BACKOFF_START_MS,
         DEFAULT_FEEDS,
 
         load, save, getState,
-        setCache, dropCache, isCacheFresh, pruneCache,
+        setCache, dropCache, isCacheFresh, pruneCache, flushCache,
         getFeedIndexByName,
         resetToDefaults,
         exportConfig,
