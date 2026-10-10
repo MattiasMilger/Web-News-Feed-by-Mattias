@@ -43,16 +43,21 @@ const RSS = (() => {
         ]
         : PUBLIC_CORS_PROXIES;
 
-    const FETCH_TIMEOUT = 15000;
-    const HEDGE_DELAY_MS = 2500;
+    // ==========================================================
+    // GIVE-UP TIMING - lower these to give up on a stuck feed sooner
+    // ==========================================================
+    const FETCH_TIMEOUT = 8000;       // max time for ONE proxy to answer
+    const FIRST_PASS_BUDGET = 10000;  // max total time for the first attempt at one URL (all proxies together)
+    const GENTLE_BUDGET = 12000;      // same, for the slower background mode (one proxy at a time)
+    const RETRY_TIMEOUT = 5000;       // retry: max time for one proxy
+    const RETRY_BUDGET = 5000;        // retry: max total time (skipped if the first attempt ran out of time)
+    const RETRY_MAX_PROXIES = 2;      // retry: how many proxies to try
+    const HEDGE_DELAY_MS = 2000;      // start a second proxy if the first hasn't answered after this long
+    // ==========================================================
+
     const MAX_PARALLEL_PER_URL = 2;
     const PROXY_COOLDOWN_MS = 30000;
     const URL_STAGGER_MS = 150;
-    const RETRY_TIMEOUT = 12000;
-    const FIRST_PASS_BUDGET = 20000;  // max total time for the first attempt at one URL
-    const GENTLE_BUDGET = 20000;
-    const RETRY_BUDGET = 10000;       // max total time for the retry
-    const RETRY_MAX_PROXIES = 3;
     const STATS_KEY = "newsfeed_proxy_stats_v2";
     const STATS_MAX_AGE_MS = 30 * 60 * 1000;
 
@@ -321,9 +326,11 @@ const RSS = (() => {
 
             if (budget > 0) {
                 budgetTimer = setTimeout(() => {
-                    finish(reject, new Error(
+                    const err = new Error(
                         `Gave up on ${extractDomain(url)} after ${Math.round(budget / 1000)}s` +
-                        (errors.length ? `: ${errors.join(", ")}` : "")));
+                        (errors.length ? `: ${errors.join(", ")}` : ""));
+                    err.budgetExceeded = true;
+                    finish(reject, err);
                 }, budget);
             }
 
@@ -361,8 +368,9 @@ const RSS = (() => {
                 }));
                 notify(true);
                 return;
-            } catch {
-                if (gentle) {
+            } catch (err) {
+                // Out of time (feed is slow or dead) or in gentle mode: don't try again
+                if (gentle || (err && err.budgetExceeded)) {
                     failedUrls.push(u);
                     notify(false);
                     return;
