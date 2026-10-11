@@ -309,6 +309,34 @@ h1 {
     border-bottom: 2px solid var(--separator-color);
 }
 
+/* Shown above the articles when they are only a saved copy (failed update, offline, source down) */
+.cache-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+    padding: 8px 12px;
+    border: 1px solid var(--warning-color);
+    border-left-width: 4px;
+    border-radius: 4px;
+    background-color: color-mix(in srgb, var(--warning-color) 10%, var(--entry-bg));
+    color: var(--fg-color);
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.cache-notice-badge {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background-color: var(--warning-color);
+    color: #1e1e1e;
+    font-size: 0.75em;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
 .article-item {
     padding: 10px 0;
     border-bottom: 1px solid var(--separator-color);

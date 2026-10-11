@@ -9,6 +9,9 @@
  *  3. After a failure a feed is retried automatically after 1 minute, then 2, 4, 8 ... up to
  *     15 minutes, so a dead feed never hammers the proxies. Nothing is fetched while offline.
  *  4. The refresh button (↻) always refreshes every feed right now.
+ *  5. If what you are looking at is only a saved copy (the last update failed, you are offline,
+ *     or some sources of an amalgamated feed did not answer), a "Cached" notice says so above the
+ *     articles, so a red dot next to familiar headlines is never a mystery.
  */
 
 const UI = (() => {
@@ -87,14 +90,88 @@ const UI = (() => {
         return job && job.latest ? job.latest : null;
     }
 
-    function describeAge(timestamp) {
-        if (!timestamp) return "not loaded yet";
+    function formatAge(timestamp) {
+        if (!timestamp) return "earlier";
         const minutes = Math.floor((Date.now() - timestamp) / 60000);
-        if (minutes < 1) return "updated just now";
-        if (minutes < 60) return `updated ${minutes} min ago`;
+        if (minutes < 1) return "just now";
+        if (minutes < 60) return `${minutes} min ago`;
         const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `updated ${hours} h ago`;
-        return `updated ${Math.floor(hours / 24)} d ago`;
+        if (hours < 24) return `${hours} h ago`;
+        return `${Math.floor(hours / 24)} d ago`;
+    }
+
+    function describeAge(timestamp) {
+        return timestamp ? `updated ${formatAge(timestamp)}` : "not loaded yet";
+    }
+
+    /**
+     * Is the open feed showing a saved copy rather than a successful, current fetch?
+     * Returns { kind, text } or null. Only true cached copies qualify: a first load's live
+     * partial results do not, and neither does a normal background refresh of an OK feed.
+     */
+    function getCacheNotice(feedUrl) {
+        const state = Config.getState();
+        const articles = state.allArticles[feedUrl];
+        if (!articles) return null;
+
+        const age = formatAge(state.fetchedAt[feedUrl]);
+        const status = state.feedStatus[feedUrl];
+
+        if (isOffline() && !isFresh(feedUrl)) {
+            return { kind: "offline", text: `You're offline - showing saved articles (updated ${age}).` };
+        }
+        if (status && status.status === "error") {
+            const tail = isFeedLoading(feedUrl)
+                ? "Retrying now..."
+                : "It will retry automatically, or press \u21BB to retry now.";
+            return { kind: "error", text: `Couldn't update this feed - showing saved articles from ${age}. ${tail}` };
+        }
+        if (status && status.status === "partial") {
+            const failed = status.failedUrls || [];
+            if (articles.some(a => failed.includes(a.sourceUrl))) {
+                return {
+                    kind: "partial",
+                    text: `Couldn't reach ${failed.map(RSS.extractDomain).join(", ")} - ` +
+                        "showing its saved articles from an earlier update."
+                };
+            }
+        }
+        return null;
+    }
+
+    function buildCacheNotice(feedUrl) {
+        const notice = getCacheNotice(feedUrl);
+        if (!notice) return null;
+
+        const el = document.createElement("div");
+        el.className = "cache-notice";
+        el.setAttribute("role", "status");
+
+        const badge = document.createElement("span");
+        badge.className = "cache-notice-badge";
+        badge.textContent = "Cached";
+        el.appendChild(badge);
+
+        const text = document.createElement("span");
+        text.className = "cache-notice-text";
+        text.textContent = notice.text;
+        el.appendChild(text);
+
+        return el;
+    }
+
+    /** Keep the notice's wording current (age, "Retrying now...") without redrawing the articles. */
+    function refreshCacheNotice() {
+        const textEl = document.querySelector("#articles-area .cache-notice-text");
+        const url = Config.getState().activeFeedUrl;
+        if (!textEl || !url || lastRender.kind !== "articles" || lastRender.url !== url) return;
+
+        const notice = getCacheNotice(url);
+        if (notice) {
+            textEl.textContent = notice.text;
+        } else if (deferredUpdate) {
+            textEl.textContent = "Updated - scroll back to the top to see the latest articles.";
+        }
     }
 
     /** Refresh-button tooltip (no layout change): says how old the open feed is. */
@@ -120,6 +197,7 @@ const UI = (() => {
         document.querySelectorAll(".feed-button").forEach(b => {
             b.classList.toggle("loading", isFeedLoading(b.dataset.feedUrl));
         });
+        refreshCacheNotice();
     }
 
     function sortedFeeds(state) {
@@ -216,6 +294,7 @@ const UI = (() => {
         const url = Config.getState().activeFeedUrl;
         if (userIsReading(url)) {
             deferredUpdate = true;
+            refreshCacheNotice(); // the notice may be out of date now, and the reader can't see it being redrawn
         } else {
             renderActive();
         }
@@ -372,7 +451,8 @@ const UI = (() => {
             const text = (a.link || "") + "\u0001" + a.title;
             for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) | 0;
         }
-        return `${feedUrl}|${state.currentPage}|${state.searchTerm}|${entries.length}:${hash}`;
+        const notice = getCacheNotice(feedUrl);
+        return `${feedUrl}|${state.currentPage}|${state.searchTerm}|${notice ? notice.kind : ""}|${entries.length}:${hash}`;
     }
 
     /**
@@ -496,6 +576,9 @@ const UI = (() => {
         header.className = "articles-header";
         header.innerHTML = `--- Latest ${Utils.escapeHtml(categoryName)} Headlines${pageText} ---${searchNote}`;
         articlesArea.appendChild(header);
+
+        const cacheNotice = buildCacheNotice(feedUrl);
+        if (cacheNotice) articlesArea.appendChild(cacheNotice);
 
         if (pageEntries.length === 0) {
             const noResults = document.createElement("p");
@@ -698,6 +781,7 @@ const UI = (() => {
         }
         prefetchOthers();
         updateRefreshTitle();
+        refreshCacheNotice();
     }
 
     function stopAutoRefresh() {
