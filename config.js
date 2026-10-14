@@ -13,13 +13,13 @@ const Config = (() => {
     // ==========================================================
     const MINUTE = 60 * 1000;
     // How often the app wakes up to check whether the open feed (and the others) went stale.
-    const REFRESH_INTERVAL_MS = 1 * MINUTE;
+    const REFRESH_INTERVAL_MS = 5 * MINUTE;
     // How long fetched articles count as "fresh". Older feeds are refreshed in the background.
-    const CACHE_TTL_MS = 15 * MINUTE;
+    const CACHE_TTL_MS = 30 * MINUTE;
     // After a feed FAILS to load it is retried automatically after this long, and the wait
-    // doubles with every further failure in a row (1, 2, 4, 8 ... min), up to CACHE_TTL_MS.
+    // doubles with every further failure in a row (5, 10, 20 ... min), up to CACHE_TTL_MS.
     // The refresh button ignores this and always retries at once.
-    const RETRY_BACKOFF_START_MS = 1 * MINUTE;
+    const RETRY_BACKOFF_START_MS = 5 * MINUTE;
     // ==========================================================
 
     // Application constants

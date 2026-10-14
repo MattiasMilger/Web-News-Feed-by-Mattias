@@ -4,10 +4,10 @@
  * HOW FEEDS REFRESH (four plain rules)
  *  1. What you see never disappears: a feed always shows its last articles (from the cache)
  *     while it refreshes. "Fetching news..." only appears when there is nothing to show yet.
- *  2. A feed refreshes by itself once its articles are older than 15 minutes - when you open
- *     it, return to the tab, or on the 1-minute check. Its dot pulses while this happens.
- *  3. After a failure a feed is retried automatically after 1 minute, then 2, 4, 8 ... up to
- *     15 minutes, so a dead feed never hammers the proxies. Nothing is fetched while offline.
+ *  2. A feed refreshes by itself once its articles are older than 30 minutes - when you open
+ *     it, return to the tab, or on the 5-minute check. Its dot pulses while this happens.
+ *  3. After a failure a feed is retried automatically after 5 minutes, then 10, 20 ... up to
+ *     30 minutes, so a dead feed never hammers the proxies. Nothing is fetched while offline.
  *  4. The refresh button (↻) always refreshes every feed right now.
  *  5. If what you are looking at is only a saved copy (the last update failed, you are offline,
  *     or some sources of an amalgamated feed did not answer), a "Cached" notice says so above the
