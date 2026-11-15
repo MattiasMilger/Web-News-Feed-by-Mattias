@@ -1,6 +1,7 @@
 /**
  * dialogs.js - Modal dialog management
- * Handles feed manager, add/edit feed, config export/import/reset.
+ * Handles feed manager, add/edit feed (including the per-source Test / Disable / Enable buttons),
+ * the failure-limit setting, config export/import/reset.
  */
 
 const Dialogs = (() => {
@@ -56,10 +57,34 @@ const Dialogs = (() => {
             selectedFeedIndex = activeIdx >= 0 ? activeIdx : null;
         }
         refreshFeedListbox();
+        syncSettings();
         openModal("feed-manager-modal");
     }
 
     function getFeedStatusInfo(feed, state) {
+        const urls = RSS.parseFeedUrls(feed.url);
+        const disabled = urls.filter(u => Config.isSourceDisabled(u));
+
+        // Nothing left to fetch
+        if (urls.length > 0 && disabled.length === urls.length) {
+            if (urls.length > 1) return { cls: "disabled", label: "All sources disabled" };
+            const source = Config.getSource(urls[0]);
+            return source.disabledReason === "failures"
+                ? { cls: "disabled", label: `Disabled - ${source.failCount} failed checks in a row` }
+                : { cls: "disabled", label: "Disabled by you" };
+        }
+
+        const info = getLoadStatusInfo(feed, state);
+        // A source that is failing shows how close it is to being switched off.
+        const worst = Math.max(0, ...urls
+            .filter(u => !Config.isSourceDisabled(u))
+            .map(u => Config.getSource(u).failCount));
+        if (worst > 0) info.label += ` · ${worst} of ${state.maxFailures} failed checks`;
+        if (disabled.length > 0) info.label += ` · ${disabled.length} source${disabled.length === 1 ? "" : "s"} disabled`;
+        return info;
+    }
+
+    function getLoadStatusInfo(feed, state) {
         const status = state.feedStatus[feed.url];
         if (!status) {
             return { cls: "unknown", label: "Not checked yet" };
@@ -67,25 +92,90 @@ const Dialogs = (() => {
         if (status.status === "ok") {
             return { cls: "ok", label: "Up - all sources responding" };
         }
+        const failed = (status.failedUrls || []).filter(u => !Config.isSourceDisabled(u));
+        if (failed.length === 0) {
+            return { cls: "unknown", label: "Not checked yet" }; // the failing sources were switched off since
+        }
+        const failedDomains = failed.map(RSS.extractDomain).join(", ");
         if (status.status === "partial") {
-            const failedDomains = status.failedUrls.map(RSS.extractDomain).join(", ");
             return { cls: "partial", label: `Partially down - ${failedDomains} not responding` };
         }
-        const failedDomains = status.failedUrls.map(RSS.extractDomain).join(", ");
         return { cls: "error", label: `Down - ${failedDomains} not responding` };
     }
 
     function getUrlStatusInfo(url, aggregateStatus) {
+        const source = Config.getSource(url);
+        if (source.disabled) {
+            return source.disabledReason === "failures"
+                ? { cls: "disabled", label: "Auto-disabled", title: `Disabled automatically after ${source.failCount} failed checks` }
+                : { cls: "disabled", label: "Disabled", title: "Disabled by you" };
+        }
         if (!aggregateStatus) {
             return { cls: "unknown", label: "Unchecked", title: "Not checked yet" };
         }
         if (aggregateStatus.failedUrls.includes(url)) {
-            return { cls: "error", label: "Down", title: "Not responding" };
+            const label = source.failCount > 0
+                ? `Down · ${source.failCount} of ${Config.getState().maxFailures}`
+                : "Down";
+            return { cls: "error", label, title: "Not responding" };
         }
         return { cls: "ok", label: "Up", title: "Responding" };
     }
 
+    // ------------------------
+    // URL rows (one per RSS source) in the Add/Edit dialog.
+    // A row can be tested, disabled or enabled. Disabling/enabling is staged on the row and only
+    // applied when the feed is saved; a disabled row's address is locked.
+    // ------------------------
+
+    function urlRows() {
+        return Array.from(document.querySelectorAll("#feed-url-list .feed-url-row"));
+    }
+
+    function rowUrl(row) {
+        return row.querySelector(".feed-url-row-input").value.trim();
+    }
+
+    function setUrlRowStatus(row, cls, label, title) {
+        const dot = row.querySelector(".feed-list-status-dot");
+        const text = row.querySelector(".feed-url-status-text");
+        if (dot) dot.className = `feed-list-status-dot status-${cls}`;
+        if (text) {
+            text.className = `feed-url-status-text status-${cls}`;
+            text.textContent = label;
+            text.title = title || "";
+        }
+    }
+
+    function applyRowDisabled(row, disabled, reason) {
+        row.dataset.disabled = disabled ? "1" : "";
+        row.dataset.reason = disabled ? reason : "";
+        row.classList.toggle("is-disabled", disabled);
+        row.querySelector(".feed-url-row-input").disabled = disabled;
+
+        const toggle = row.querySelector(".feed-url-toggle-btn");
+        toggle.textContent = disabled ? "Enable" : "Disable";
+        toggle.classList.toggle("is-enable", disabled);
+        toggle.title = disabled ? "Fetch this source again (applies when you save)" : "Stop fetching this source (applies when you save)";
+    }
+
+    /** Is this row's source switched off - as staged in the dialog if the row was touched, otherwise as saved. */
+    function rowIsDisabled(row) {
+        return row.dataset.touched === "1" ? row.dataset.disabled === "1" : Config.isSourceDisabled(rowUrl(row));
+    }
+
+    function updateSourcesBanner() {
+        const banner = document.getElementById("feed-sources-banner");
+        if (!banner) return;
+        const n = urlRows().filter(r => r.dataset.disabled === "1").length;
+        banner.hidden = n === 0;
+        banner.textContent = n === 0 ? "" : (n === 1
+            ? "1 source is disabled and isn't fetched. Test it, then enable or remove it. Changes apply when you press Save."
+            : `${n} sources are disabled and aren't fetched. Test them, then enable or remove them. Changes apply when you press Save.`);
+    }
+
     function createUrlRowElement(url, statusInfo) {
+        const source = Config.getSource(url);
         const row = document.createElement("div");
         row.className = "feed-url-row";
 
@@ -96,6 +186,7 @@ const Dialogs = (() => {
         const label = document.createElement("span");
         label.className = `feed-url-status-text status-${statusInfo.cls}`;
         label.textContent = statusInfo.label;
+        label.title = statusInfo.title || "";
         row.appendChild(label);
 
         const input = document.createElement("input");
@@ -105,21 +196,102 @@ const Dialogs = (() => {
         input.value = url;
         row.appendChild(input);
 
+        const testBtn = document.createElement("button");
+        testBtn.type = "button";
+        testBtn.className = "feed-url-action-btn feed-url-test-btn";
+        testBtn.textContent = "Test";
+        testBtn.title = "Try this source now (changes nothing)";
+        testBtn.addEventListener("click", () => testSource(row));
+        row.appendChild(testBtn);
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "feed-url-action-btn feed-url-toggle-btn";
+        toggleBtn.addEventListener("click", () => {
+            const nowDisabled = row.dataset.disabled !== "1";
+            applyRowDisabled(row, nowDisabled, "manual");
+            row.dataset.touched = "1";
+            const text = row.querySelector(".feed-url-status-text");
+            if (nowDisabled) {
+                setUrlRowStatus(row, "disabled", "Disabled", "Disabled by you");
+            } else if (text.classList.contains("status-disabled")) {
+                setUrlRowStatus(row, "unknown", "Not checked");
+            } // otherwise keep the test result that is showing
+            updateSourcesBanner();
+        });
+        row.appendChild(toggleBtn);
+
         const removeBtn = document.createElement("button");
         removeBtn.type = "button";
         removeBtn.className = "feed-url-remove-btn";
         removeBtn.textContent = "\u2715";
         removeBtn.title = "Remove this URL";
-        removeBtn.addEventListener("click", () => row.remove());
+        removeBtn.addEventListener("click", () => {
+            row.remove();
+            updateSourcesBanner();
+        });
         row.appendChild(removeBtn);
 
+        applyRowDisabled(row, source.disabled, source.disabledReason || "manual");
         return row;
+    }
+
+    /**
+     * "Test": try one source right now and show Up or Down on its row.
+     * It changes nothing - no cache, no failure count, no enabled state.
+     */
+    async function testSource(row) {
+        if (row.dataset.testing === "1") return;
+
+        const url = rowUrl(row);
+        if (!url) {
+            Utils.showMessage("Enter a URL to test first.", "warning");
+            return;
+        }
+        const validation = RSS.validateFeedUrl(url);
+        if (!validation.valid) {
+            Utils.showMessage(validation.error, "error");
+            return;
+        }
+        if (navigator.onLine === false) {
+            Utils.showMessage("You're offline - can't test right now.", "warning", 4000);
+            return;
+        }
+
+        const btn = row.querySelector(".feed-url-test-btn");
+        const domain = RSS.extractDomain(url);
+        row.dataset.testing = "1";
+        btn.disabled = true;
+        btn.textContent = "Testing...";
+        setUrlRowStatus(row, "unknown", "Testing...");
+        try {
+            const { articles } = await RSS.fetchFeedEntries(url);
+            setUrlRowStatus(row, "ok", "Up", "Responding");
+            const next = row.dataset.disabled === "1" ? " You can enable it now." : "";
+            Utils.showMessage(`${domain} responds (${articles.length} articles).${next}`, "success", 5000);
+        } catch (err) {
+            setUrlRowStatus(row, "error", "Down", "Not responding");
+            Utils.showMessage(`${domain} did not respond.`, "warning", 5000);
+        } finally {
+            delete row.dataset.testing;
+            btn.disabled = false;
+            btn.textContent = "Test";
+        }
+    }
+
+    /** Apply the enable/disable choices made on the rows (only rows the user touched). Called when saving. */
+    function applyStagedSourceStates() {
+        urlRows().filter(r => r.dataset.touched === "1").forEach(r => {
+            const url = rowUrl(r);
+            if (url) Config.setSourceDisabled(url, r.dataset.disabled === "1", r.dataset.reason || "manual");
+        });
     }
 
     function addUrlRow(url) {
         const list = document.getElementById("feed-url-list");
         const row = createUrlRowElement(url || "", { cls: "unknown", label: "New", title: "Not checked yet" });
         list.appendChild(row);
+        updateSourcesBanner();
         if (!url) {
             row.querySelector(".feed-url-row-input").focus();
         }
@@ -136,6 +308,7 @@ const Dialogs = (() => {
             const statusInfo = getUrlStatusInfo(u, aggregateStatus);
             list.appendChild(createUrlRowElement(u, statusInfo));
         });
+        updateSourcesBanner();
     }
 
     function collectUrlRowValues() {
@@ -173,6 +346,7 @@ const Dialogs = (() => {
             row.dataset.index = i;
             if (i === selectedFeedIndex) row.classList.add("selected");
             if (feed.url === state.activeFeedUrl) row.classList.add("is-active-feed");
+            if (statusInfo.cls === "disabled") row.classList.add("is-disabled");
             row.setAttribute("aria-selected", i === selectedFeedIndex ? "true" : "false");
 
             const dot = document.createElement("span");
@@ -289,26 +463,33 @@ const Dialogs = (() => {
             return;
         }
 
+        // Disabled sources are never fetched, not even to validate the feed.
+        const disabledNow = new Set(urlRows().filter(rowIsDisabled).map(rowUrl));
+        const activeCount = urlList.filter(u => !disabledNow.has(u)).length;
+
         const saveBtn = document.getElementById("btn-feed-save");
-        saveBtn.disabled = true;
-        saveBtn.textContent = "Validating...";
         let validated = null;
-        try {
-            validated = await RSS.fetchFeedEntries(url);
-            const { failedUrls } = validated;
-            if (failedUrls.length > 0) {
-                const total = RSS.parseFeedUrls(url).length;
-                Utils.showMessage(
-                    `${failedUrls.length} of ${total} source(s) failed to load - saving with working sources.`,
-                    "warning", 6000
-                );
+        if (activeCount === 0) {
+            Utils.showMessage("All sources are disabled - saving without checking them.", "info", 5000);
+        } else {
+            saveBtn.disabled = true;
+            saveBtn.textContent = "Validating...";
+            try {
+                validated = await RSS.fetchFeedEntries(url, undefined, null, { skipSource: u => disabledNow.has(u) });
+                const { failedUrls } = validated;
+                if (failedUrls.length > 0) {
+                    Utils.showMessage(
+                        `${failedUrls.length} of ${activeCount} source(s) failed to load - saving with working sources.`,
+                        "warning", 6000
+                    );
+                }
+            } catch (err) {
+                Utils.showMessage(`Feed validation failed: ${err.message}`, "error", 8000);
+                return;
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = "Save";
             }
-        } catch (err) {
-            Utils.showMessage(`Feed validation failed: ${err.message}`, "error", 8000);
-            return;
-        } finally {
-            saveBtn.disabled = false;
-            saveBtn.textContent = "Save";
         }
 
         const rowNum = isNaN(row) || row < 1 || row > Config.MAX_ROWS ? 1 : row;
@@ -362,6 +543,7 @@ const Dialogs = (() => {
             Utils.showMessage(msg, "success");
         }
 
+        applyStagedSourceStates(); // the feed now exists with its final URLs, so the choices can be stored
         if (validated) UI.storeFeedResult(url, validated.articles, validated.failedUrls);
 
         Config.save();
@@ -414,6 +596,58 @@ const Dialogs = (() => {
         Utils.showMessage(`Feed '${feedName}' removed.`, "info");
     }
 
+    // ========================
+    // Setting: disable an RSS source after X failures (lives in Manage Feeds for now)
+    // ========================
+
+    function syncSettings(keepInputText) {
+        const slider = document.getElementById("setting-max-failures-slider");
+        const input = document.getElementById("setting-max-failures");
+        const minus = document.getElementById("btn-failures-minus");
+        const plus = document.getElementById("btn-failures-plus");
+        const hint = document.getElementById("setting-max-failures-hint");
+        if (!slider || !input) return;
+
+        const limit = Config.getState().maxFailures;
+        slider.value = limit;
+        if (!keepInputText) input.value = limit;
+        minus.disabled = limit <= Config.FAILURE_LIMIT_MIN;
+        plus.disabled = limit >= Config.FAILURE_LIMIT_MAX;
+        hint.textContent =
+            `An RSS source that fails ${limit} ${limit === 1 ? "check" : "checks"} in a row is switched off. ` +
+            "Failed checks of a source are at least 5 minutes apart, and one success starts the count over.";
+    }
+
+    function applyFailureLimit(value, keepInputText) {
+        Config.setMaxFailures(value);
+        syncSettings(keepInputText);
+    }
+
+    function initSettings() {
+        const slider = document.getElementById("setting-max-failures-slider");
+        const input = document.getElementById("setting-max-failures");
+        if (!slider || !input) return;
+
+        [slider, input].forEach(el => {
+            el.min = Config.FAILURE_LIMIT_MIN;
+            el.max = Config.FAILURE_LIMIT_MAX;
+        });
+
+        slider.addEventListener("input", () => applyFailureLimit(slider.value));
+        // While typing, apply valid numbers right away but leave the text alone; leaving the field fixes the rest.
+        input.addEventListener("input", () => {
+            const n = parseInt(input.value, 10);
+            if (n >= Config.FAILURE_LIMIT_MIN && n <= Config.FAILURE_LIMIT_MAX) applyFailureLimit(n, true);
+        });
+        input.addEventListener("change", () => applyFailureLimit(input.value));
+        document.getElementById("btn-failures-minus").addEventListener("click", () =>
+            applyFailureLimit(Config.getState().maxFailures - 1));
+        document.getElementById("btn-failures-plus").addEventListener("click", () =>
+            applyFailureLimit(Config.getState().maxFailures + 1));
+
+        syncSettings();
+    }
+
     function openConfigManager() {
         openModal("config-modal");
     }
@@ -461,6 +695,7 @@ const Dialogs = (() => {
 
                 if (result === true) {
                     selectedFeedIndex = null;
+                    syncSettings();
                     Utils.applyTheme(Config.getState().currentTheme);
                     UI.renderFeedButtons();
                     UI.clearArticles();
@@ -508,6 +743,7 @@ const Dialogs = (() => {
         Config.resetToDefaults();
         Config.save();
         selectedFeedIndex = null;
+        syncSettings();
 
         Utils.applyTheme(Config.getState().currentTheme);
         UI.renderFeedButtons();
@@ -535,6 +771,7 @@ const Dialogs = (() => {
         openEditCurrentFeed,
         saveFeed,
         removeFeed,
+        initSettings,
         addUrlRow,
         openConfigManager,
         exportConfig,

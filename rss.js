@@ -341,10 +341,16 @@ const RSS = (() => {
     async function fetchFeedEntries(feedUrl, maxEntries, onPartial, opts) {
         maxEntries = maxEntries || Config.MAX_ENTRIES_PER_FEED;
         const gentle = !!(opts && opts.gentle);
-        const urls = parseFeedUrls(feedUrl);
+        const allUrls = parseFeedUrls(feedUrl);
 
-        if (urls.length === 0) {
+        if (allUrls.length === 0) {
             throw new Error("No valid URLs to fetch");
+        }
+
+        // Sources the user (or the failure limit) switched off are not fetched at all.
+        const urls = allUrls.filter(u => !(opts && opts.skipSource && opts.skipSource(u)));
+        if (urls.length === 0) {
+            throw new Error("All sources of this feed are disabled");
         }
 
         let collected = [];
