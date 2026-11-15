@@ -22,18 +22,6 @@ const Config = (() => {
     const RETRY_BACKOFF_START_MS = 5 * MINUTE;
     // ==========================================================
 
-    // ==========================================================
-    // AUTO-DISABLE - an RSS source that keeps failing is switched off so it stops being hit
-    // ==========================================================
-    // Default for the "Disable RSS source after X failures" setting (changeable in Manage Feeds).
-    const FAILURE_LIMIT_DEFAULT = 5;
-    const FAILURE_LIMIT_MIN = 1;
-    const FAILURE_LIMIT_MAX = 20;
-    // Failed checks of the same source closer together than this count as ONE failure, so
-    // reloading the page or pressing refresh over and over can't use up the limit in a minute.
-    const FAILURE_MIN_GAP_MS = RETRY_BACKOFF_START_MS;
-    // ==========================================================
-
     // Application constants
     const MAX_ROWS = 10;
     const MIN_ROW = 1;
@@ -88,8 +76,6 @@ const Config = (() => {
     let state = {
         feeds: [],
         currentTheme: "dark",
-        maxFailures: FAILURE_LIMIT_DEFAULT,   // disable an RSS source after this many failed checks in a row
-        sources: {},       // sourceUrl -> { disabled, disabledReason, failCount, failAt } (only sources with something to remember)
         activeFeedUrl: null,
         activeFeedName: null,
         allArticles: {},   // feedUrl -> last completed articles (what the feed shows while it refreshes)
@@ -123,136 +109,6 @@ const Config = (() => {
         return { name: "Unknown", url: "", row: DEFAULT_ROW, order: null };
     }
 
-    // ========================
-    // RSS sources (the individual URLs inside a feed)
-    // ========================
-
-    function splitUrls(urlString) {
-        return String(urlString || "").split(",").map(u => u.trim()).filter(Boolean);
-    }
-
-    function newSourceState() {
-        return { disabled: false, disabledReason: null, failCount: 0, failAt: 0 };
-    }
-
-    function normalizeSourceState(raw) {
-        const out = newSourceState();
-        if (!raw || typeof raw !== "object") return out;
-        if (raw.disabled === true) {
-            out.disabled = true;
-            out.disabledReason = raw.disabledReason === "failures" ? "failures" : "manual";
-        }
-        if (Number.isFinite(raw.failCount) && raw.failCount > 0) out.failCount = Math.floor(raw.failCount);
-        if (Number.isFinite(raw.failAt) && raw.failAt > 0) out.failAt = raw.failAt;
-        return out;
-    }
-
-    function sanitizeSources(raw) {
-        const out = {};
-        if (raw && typeof raw === "object") {
-            for (const [url, value] of Object.entries(raw)) {
-                const entry = normalizeSourceState(value);
-                if (url && (entry.disabled || entry.failCount > 0)) out[url] = entry;
-            }
-        }
-        return out;
-    }
-
-    /** A stored/imported failure limit if it is valid, otherwise the default. */
-    function sanitizeFailureLimit(value) {
-        const n = Math.round(Number(value));
-        return Number.isFinite(n) && n >= FAILURE_LIMIT_MIN && n <= FAILURE_LIMIT_MAX ? n : FAILURE_LIMIT_DEFAULT;
-    }
-
-    function isKnownSource(sourceUrl) {
-        return state.feeds.some(f => splitUrls(f.url).includes(sourceUrl));
-    }
-
-    /** Forget the state of sources that no feed uses any more. */
-    function pruneSources() {
-        const used = new Set();
-        state.feeds.forEach(f => splitUrls(f.url).forEach(u => used.add(u)));
-        Object.keys(state.sources).forEach(u => {
-            if (!used.has(u)) delete state.sources[u];
-        });
-    }
-
-    /** The saved state of a source (a clean default for sources with nothing to remember). */
-    function getSource(sourceUrl) {
-        const entry = state.sources[sourceUrl];
-        return entry ? { ...entry } : newSourceState();
-    }
-
-    function isSourceDisabled(sourceUrl) {
-        const entry = state.sources[sourceUrl];
-        return !!entry && entry.disabled === true;
-    }
-
-    function hasDisabledSources() {
-        return Object.values(state.sources).some(s => s.disabled);
-    }
-
-    /** Switch a source off (reason: "manual" or "failures"), or back on with a clean slate. */
-    function setSourceDisabled(sourceUrl, disabled, reason) {
-        if (!sourceUrl) return;
-        if (disabled) {
-            const entry = state.sources[sourceUrl] || (state.sources[sourceUrl] = newSourceState());
-            entry.disabled = true;
-            entry.disabledReason = reason === "failures" ? "failures" : "manual";
-        } else {
-            delete state.sources[sourceUrl];
-        }
-        save();
-    }
-
-    /** The source answered: forget its failures. */
-    function clearSourceFailures(sourceUrl) {
-        const entry = state.sources[sourceUrl];
-        if (entry && !entry.disabled) {
-            delete state.sources[sourceUrl];
-            save();
-        }
-    }
-
-    /**
-     * Count one failed check for a source and disable it once it reaches the limit.
-     * `holdDisable` = the failure looks like a connection/proxy problem rather than the source's
-     * fault: it is counted, but the source is not switched off yet.
-     * Returns { failCount, disabledNow }, or null if the source is unknown or already disabled.
-     */
-    function recordSourceFailure(sourceUrl, holdDisable) {
-        if (!isKnownSource(sourceUrl)) return null;
-        const existing = state.sources[sourceUrl];
-        if (existing && existing.disabled) return null;
-
-        const entry = existing || (state.sources[sourceUrl] = newSourceState());
-        const now = Date.now();
-        if (entry.failAt && now - entry.failAt < FAILURE_MIN_GAP_MS) {
-            return { failCount: entry.failCount, disabledNow: false }; // same failure episode: counts once
-        }
-
-        entry.failCount += 1;
-        entry.failAt = now;
-
-        let disabledNow = false;
-        if (entry.failCount >= state.maxFailures && !holdDisable) {
-            entry.disabled = true;
-            entry.disabledReason = "failures";
-            disabledNow = true;
-        }
-        save();
-        return { failCount: entry.failCount, disabledNow };
-    }
-
-    /** Set the "disable after X failures" limit (clamped to its allowed range). Returns the value in effect. */
-    function setMaxFailures(value) {
-        const n = Math.round(Number(value));
-        if (!Number.isFinite(n)) return state.maxFailures;
-        state.maxFailures = Math.max(FAILURE_LIMIT_MIN, Math.min(FAILURE_LIMIT_MAX, n));
-        save();
-        return state.maxFailures;
-    }
-
     /**
      * Load configuration from localStorage.
      */
@@ -273,8 +129,6 @@ const Config = (() => {
                 }
 
                 state.currentTheme = data.theme || "dark";
-                state.maxFailures = sanitizeFailureLimit(data.maxFailures);
-                state.sources = sanitizeSources(data.sources);
             } catch (e) {
                 console.warn("Config: Failed to parse stored config, using defaults.");
                 resetToDefaults();
@@ -305,12 +159,9 @@ const Config = (() => {
      * Save current feeds and theme to localStorage.
      */
     function save() {
-        pruneSources();
         const data = {
             feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
-            theme: state.currentTheme,
-            maxFailures: state.maxFailures,
-            sources: state.sources
+            theme: state.currentTheme
         };
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -327,8 +178,6 @@ const Config = (() => {
     function resetToDefaults() {
         state.feeds = DEFAULT_FEEDS.map(f => ({ ...f }));
         state.currentTheme = "dark";
-        state.maxFailures = FAILURE_LIMIT_DEFAULT;
-        state.sources = {};
         state.activeFeedUrl = null;
         state.activeFeedName = null;
         state.allArticles = {};
@@ -471,17 +320,10 @@ const Config = (() => {
      * Export current config as a JSON object (for file download).
      */
     function exportConfig() {
-        // Which sources are switched off is exported (failure counters are not - an import starts clean)
-        const disabledSources = Object.entries(state.sources)
-            .filter(([, s]) => s.disabled)
-            .map(([url, s]) => ({ url, reason: s.disabledReason }));
-        const out = {
+        return {
             feeds: state.feeds.map(f => ({ name: f.name, url: f.url, row: f.row, order: f.order })),
-            theme: state.currentTheme,
-            maxFailures: state.maxFailures
+            theme: state.currentTheme
         };
-        if (disabledSources.length > 0) out.disabledSources = disabledSources;
-        return out;
     }
 
     /**
@@ -503,18 +345,6 @@ const Config = (() => {
 
         state.feeds = feeds;
         state.currentTheme = data.theme === "light" ? "light" : "dark";
-        state.maxFailures = sanitizeFailureLimit(data.maxFailures);
-        state.sources = {};
-        if (Array.isArray(data.disabledSources)) {
-            data.disabledSources.forEach(item => {
-                if (item && typeof item.url === "string" && item.url.trim()) {
-                    const entry = newSourceState();
-                    entry.disabled = true;
-                    entry.disabledReason = item.reason === "failures" ? "failures" : "manual";
-                    state.sources[item.url.trim()] = entry;
-                }
-            });
-        }
         state.activeFeedUrl = null;
         state.activeFeedName = null;
         state.currentPage = 1;
@@ -542,14 +372,11 @@ const Config = (() => {
         MAX_ROWS, MIN_ROW, DEFAULT_ROW, MAX_ORDER, DEFAULT_ORDER,
         MAX_ENTRIES_PER_FEED, ARTICLES_PER_PAGE, MAX_PAGES,
         FEED_FETCH_TIMEOUT, REFRESH_INTERVAL_MS, CACHE_TTL_MS, RETRY_BACKOFF_START_MS,
-        FAILURE_LIMIT_DEFAULT, FAILURE_LIMIT_MIN, FAILURE_LIMIT_MAX,
         DEFAULT_FEEDS,
 
         load, save, getState,
         setCache, dropCache, isCacheFresh, pruneCache, flushCache,
         getFeedIndexByName,
-        getSource, isSourceDisabled, hasDisabledSources, setSourceDisabled,
-        clearSourceFailures, recordSourceFailure, setMaxFailures,
         resetToDefaults,
         exportConfig,
         importConfig

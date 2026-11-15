@@ -55,24 +55,6 @@
                 <button id="btn-feed-edit" class="modal-action-button">Edit Selected</button>
                 <button id="btn-feed-remove" class="modal-action-button danger-button">Remove Selected</button>
             </div>
-            <div class="feed-settings">
-                <h3>Feed Settings</h3>
-                <div class="setting-row">
-                    <div class="setting-text">
-                        <label for="setting-max-failures">Auto disable an RSS source</label>
-                        <p id="setting-max-failures-hint" class="setting-hint"></p>
-                    </div>
-                    <div class="setting-control">
-                        <input type="range" id="setting-max-failures-slider" class="setting-slider" min="1" max="20" step="1" value="5" aria-label="Failed checks before an RSS source is disabled">
-                        <div class="stepper">
-                            <button type="button" id="btn-failures-minus" class="stepper-btn" aria-label="Fewer failures">&minus;</button>
-                            <input type="number" id="setting-max-failures" class="stepper-input" min="1" max="20" step="1" value="5" inputmode="numeric">
-                            <button type="button" id="btn-failures-plus" class="stepper-btn" aria-label="More failures">+</button>
-                        </div>
-                        <span class="setting-unit">failed checks</span>
-                    </div>
-                </div>
-            </div>
             <div class="modal-close-center">
                 <button class="modal-close-button centered" data-modal="feed-manager-modal">Close</button>
             </div>
@@ -84,7 +66,6 @@
         <div class="modal-content">
             <span class="close-button" data-modal="feed-edit-modal">&times;</span>
             <h2 id="feed-edit-title">Add Feed</h2>
-            <div id="feed-sources-banner" class="feed-disabled-banner" role="status" hidden></div>
             <div class="form-group">
                 <label for="feed-name-input">Category Name:</label>
                 <input type="text" id="feed-name-input" placeholder="e.g., Tech News" maxlength="50">
@@ -187,20 +168,10 @@
                     </ul>
                 </div>
                 <div class="info-section">
-                    <strong>Disabling RSS Sources</strong>
-                    <ul class="info-list">
-                        <li><strong>Per source</strong> - every RSS URL inside a feed has its own <em>Test</em> and <em>Disable</em> / <em>Enable</em> buttons in the edit dialog. A disabled source is never fetched - not by auto-refresh, background loading, the refresh button or when saving the feed - and its articles are hidden. The other sources of the feed keep working. A feed whose sources are all disabled is dimmed and not fetched at all.</li>
-                        <li><strong>Automatic disabling</strong> - an RSS source that fails to load several times in a row is switched off so it stops being hit. The limit is set under <em>Feed Settings</em> in Manage Feeds (default 5). Failed checks of a source are at least 5 minutes apart, and one success starts its count over. If no other source has loaded recently, the problem is probably your connection or the proxies, so nothing is disabled yet.</li>
-                        <li><strong>Locked address</strong> - a disabled source's URL field is read-only until you enable it again. You can still remove it.</li>
-                        <li><strong>Test</strong> - tries that one source and shows Up or Down. It changes nothing, so you can check a disabled source before enabling or removing it.</li>
-                        <li><strong>Save to apply</strong> - enabling or disabling a source in the edit dialog takes effect when you press Save.</li>
-                    </ul>
-                </div>
-                <div class="info-section">
                     <strong>Reading</strong>
                     <ul class="info-list">
                         <li><strong>Pagination</strong> - articles are shown 12 per page, up to 10 pages per feed.</li>
-                        <li><strong>Refresh button (&#x21BB;)</strong> - re-fetches every feed right now (skipping disabled sources), ignoring the cache and any retry wait. Articles stay on screen and update in place. It is only unavailable while it is running; hover it to see how old the open feed is.</li>
+                        <li><strong>Refresh button (&#x21BB;)</strong> - re-fetches every feed right now, ignoring the cache and any retry wait. Articles stay on screen and update in place. It is only unavailable while it is running; hover it to see how old the open feed is.</li>
                         <li><strong>Auto-refresh</strong> - a feed refreshes in the background once its articles are older than 30 minutes (when you open it, return to the tab, or on a 5-minute check). Its dot pulses while it loads. If you have scrolled down, new articles wait until you are back at the top so the list never moves under you. Nothing is fetched while you are offline.</li>
                         <li><strong>Caching</strong> - feeds open instantly from the cache and keep showing their last articles while they refresh. "Fetching news..." only appears when a feed has nothing to show yet. A feed that fails is retried automatically after 5 minutes, then 10, 20... up to 30 minutes.</li>
                         <li><strong>Cached notice</strong> - if the articles you see are only a saved copy (the last update failed, you are offline, or one source of a combined feed is down), a yellow "Cached" notice above the list says so and how old they are. It disappears as soon as the feed updates successfully.</li>
