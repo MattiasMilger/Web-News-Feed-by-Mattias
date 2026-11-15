@@ -12,6 +12,10 @@
  *  5. If what you are looking at is only a saved copy (the last update failed, you are offline,
  *     or some sources of an amalgamated feed did not answer), a "Cached" notice says so above the
  *     articles, so a red dot next to familiar headlines is never a mystery.
+ *  6. A source (one RSS URL inside a feed) that fails N checks in a row (setting in Manage Feeds,
+ *     default 6, 0 = off) is switched off and never fetched again until the user enables it.
+ *     Only automatic checks count: the refresh button, being offline, or nothing working at all
+ *     (a proxy outage) never disable anything.
  */
 
 const UI = (() => {
@@ -32,17 +36,24 @@ const UI = (() => {
     let lastRender = { kind: null, url: null, key: "" };
     let deferredUpdate = false;      // fresh data arrived while the user was reading further down
 
+    const forceStale = new Set();    // feeds whose sources were just switched on: treat as stale until fetched
+    const autoDisabledNotices = [];  // sources auto-disabled lately, announced together in one message
+    let noticeTimer = null;
+
     function summarizeFetchResult(feedUrl, failedUrls) {
-        const totalSources = RSS.parseFeedUrls(feedUrl).length;
+        const active = activeSources(feedUrl);
+        // Sources that are switched off are not part of the feed's health.
+        if (active.length === 0) return { status: "disabled", failedUrls: [] };
+        const failed = failedUrls.filter(u => active.includes(u));
         let status;
-        if (failedUrls.length === 0) {
+        if (failed.length === 0) {
             status = "ok";
-        } else if (failedUrls.length < totalSources) {
+        } else if (failed.length < active.length) {
             status = "partial";
         } else {
             status = "error";
         }
-        return { status, failedUrls };
+        return { status, failedUrls: failed };
     }
 
     function sleep(ms) {
@@ -57,6 +68,15 @@ const UI = (() => {
         return Config.getState().feeds.some(f => f.url === feedUrl);
     }
 
+    /** The sources of a feed that are switched on. A feed with none has nothing to fetch. */
+    function activeSources(feedUrl) {
+        return Config.activeSources(feedUrl);
+    }
+
+    function hasActiveSources(feedUrl) {
+        return Config.activeSources(feedUrl).length > 0;
+    }
+
     /** True while a feed is being fetched (single fetch or part of a "refresh all"). Drives the pulsing dot. */
     function isFeedLoading(feedUrl) {
         return inflight.has(feedUrl) || refreshing.has(feedUrl);
@@ -64,7 +84,7 @@ const UI = (() => {
 
     function isFresh(feedUrl) {
         const state = Config.getState();
-        return !!state.allArticles[feedUrl] && Config.isCacheFresh(feedUrl);
+        return !!state.allArticles[feedUrl] && Config.isCacheFresh(feedUrl) && !forceStale.has(feedUrl);
     }
 
     /** How long to wait before retrying a feed that failed `count` times in a row. */
@@ -79,7 +99,7 @@ const UI = (() => {
 
     /** The one automatic-refresh rule, used by clicks, tab returns, the timer and background prefetch. */
     function needsRefresh(feedUrl) {
-        return !isOffline() && !isFresh(feedUrl) && !isWaitingToRetry(feedUrl);
+        return hasActiveSources(feedUrl) && !isOffline() && !isFresh(feedUrl) && !isWaitingToRetry(feedUrl);
     }
 
     /** What the feed can show right now: its cached articles, or partial results of a first load. */
@@ -219,6 +239,7 @@ const UI = (() => {
     /** Used by the feed dialog after it has validated a feed: store the result as a completed fetch. */
     function storeFeedResult(feedUrl, articles, failedUrls) {
         delete failures[feedUrl];
+        forceStale.delete(feedUrl);
         Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, failedUrls || []));
         updateFeedDots();
     }
@@ -232,17 +253,28 @@ const UI = (() => {
         const running = inflight.get(feedUrl);
         if (running) return running.promise;
 
-        const job = { latest: null, promise: null };
         const state = Config.getState();
 
-        const totalSources = RSS.parseFeedUrls(feedUrl).length;
+        // Every source of this feed is switched off: nothing to fetch.
+        if (!hasActiveSources(feedUrl)) {
+            state.feedStatus[feedUrl] = { status: "disabled", failedUrls: [] };
+            updateFeedDots();
+            return Promise.resolve({ articles: [], failedUrls: [] });
+        }
+
+        const job = { latest: null, promise: null };
+
+        const totalSources = activeSources(feedUrl).length;
         const failedSoFar = [];
         let doneSoFar = 0;
+        const countFailures = !(opts && opts.countFailures === false); // the refresh button doesn't count
 
         const fetchOpts = Object.assign({}, opts, {
+            skip: Config.isSourceDisabled,
             onSource: (url, ok) => {
                 doneSoFar++;
                 if (!ok) failedSoFar.push(url);
+                noteSourceCheck(url, ok, countFailures);
                 if (failedSoFar.length > 0 || doneSoFar === totalSources) {
                     state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, failedSoFar.slice());
                     updateFeedDots();
@@ -259,6 +291,7 @@ const UI = (() => {
                 delete failures[feedUrl];
                 if (!isConfigured(feedUrl)) return result; // feed was removed or edited meanwhile: don't cache it
                 const articles = keepFailedSources(feedUrl, result);
+                forceStale.delete(feedUrl);
                 Config.setCache(feedUrl, articles, summarizeFetchResult(feedUrl, result.failedUrls));
                 updateFeedDots();
                 return { articles, failedUrls: result.failedUrls };
@@ -268,7 +301,7 @@ const UI = (() => {
                 if (!isOffline()) {
                     const previous = failures[feedUrl];
                     failures[feedUrl] = { count: previous ? previous.count + 1 : 1, at: Date.now() };
-                    state.feedStatus[feedUrl] = { status: "error", failedUrls: RSS.parseFeedUrls(feedUrl) };
+                    state.feedStatus[feedUrl] = summarizeFetchResult(feedUrl, RSS.parseFeedUrls(feedUrl));
                     updateFeedDots();
                 }
                 throw err;
@@ -467,7 +500,9 @@ const UI = (() => {
 
         const articles = getArticles(url);
         if (!articles) {
-            if (isFeedLoading(url)) {
+            if (!hasActiveSources(url)) {
+                showNote("All sources of this feed are disabled. Use Edit Feed to test them and turn them back on.");
+            } else if (isFeedLoading(url)) {
                 showLoading();
             } else if (isOffline()) {
                 showNote("You're offline. This feed will load as soon as you're back online.");
@@ -709,6 +744,11 @@ const UI = (() => {
             Utils.showMessage("No feeds to refresh.", "info");
             return;
         }
+        const refreshable = sortedFeeds(state).filter(f => hasActiveSources(f.url));
+        if (refreshable.length === 0) {
+            Utils.showMessage("Every source is disabled - nothing to refresh.", "info");
+            return;
+        }
         if (isOffline()) {
             Utils.showMessage("You're offline - can't refresh right now.", "warning", 4000);
             return;
@@ -716,11 +756,11 @@ const UI = (() => {
 
         refreshingAll = true;
         Object.keys(failures).forEach(url => delete failures[url]); // a clean slate: everything is tried again
-        state.feeds.forEach(f => refreshing.add(f.url));
+        refreshable.forEach(f => refreshing.add(f.url));
         updateRefreshButton();
 
         const active = state.activeFeedUrl;
-        const queue = sortedFeeds(state)
+        const queue = refreshable.slice()
             .sort((a, b) => (a.url === active ? -1 : 0) - (b.url === active ? -1 : 0)); // open feed first
         const total = queue.length;
         const problems = [];
@@ -734,7 +774,7 @@ const UI = (() => {
             while (queue.length > 0) {
                 const feed = queue.shift();
                 try {
-                    const { failedUrls } = await loadFeedData(feed.url);
+                    const { failedUrls } = await loadFeedData(feed.url, { countFailures: false });
                     if (failedUrls.length > 0) problems.push(feed.name);
                 } catch {
                     problems.push(feed.name);
@@ -765,6 +805,88 @@ const UI = (() => {
         } else {
             Utils.showMessage("All feeds refreshed.", "success", 3000);
         }
+    }
+
+    // ========================
+    // Switched-off sources
+    // ========================
+
+    /** Report one source check. Failures offline or from the refresh button never count. */
+    function noteSourceCheck(sourceUrl, ok, countFailures) {
+        const counts = countFailures && !isOffline();
+        if (Config.recordSourceCheck(sourceUrl, ok, counts)) handleAutoDisabled(sourceUrl);
+    }
+
+    function refreshManagerIfOpen() {
+        const modal = document.getElementById("feed-manager-modal");
+        if (modal && !modal.classList.contains("hidden")) Dialogs.refreshFeedListbox();
+    }
+
+    function handleAutoDisabled(sourceUrl) {
+        const feeds = Config.getState().feeds
+            .filter(f => RSS.parseFeedUrls(f.url).includes(sourceUrl))
+            .map(f => f.name);
+        autoDisabledNotices.push({ source: sourceUrl, feeds });
+        syncDisabledStatuses();
+        updateFeedDots();
+        refreshManagerIfOpen();
+        // Several sources can give up together: announce them in one message.
+        if (!noticeTimer) noticeTimer = setTimeout(flushAutoDisabledNotice, 1500);
+    }
+
+    function flushAutoDisabledNotice() {
+        noticeTimer = null;
+        const items = autoDisabledNotices.splice(0);
+        if (items.length === 0) return;
+
+        const where = `Re-enable ${items.length === 1 ? "it" : "them"} under Manage Feeds > Edit Selected.`;
+        let text;
+        if (items.length === 1) {
+            const item = items[0];
+            const info = Config.getDisabledInfo(item.source);
+            const fails = info && info.fails > 0 ? info.fails : Config.getAutoDisableAfter();
+            const inFeeds = item.feeds.length > 0 ? ` (${item.feeds.join(", ")})` : "";
+            text = `Disabled ${RSS.extractDomain(item.source)}${inFeeds} after ${fails} failed checks. ${where}`;
+        } else {
+            text = `Disabled ${items.length} sources after repeated failures: ` +
+                `${items.map(i => RSS.extractDomain(i.source)).join(", ")}. ${where}`;
+        }
+        Utils.showMessage(text, "warning", 12000);
+    }
+
+    /** A feed with no active source shows a grey "disabled" dot; one that has sources again loses it. */
+    function syncDisabledStatuses() {
+        const state = Config.getState();
+        for (const feed of state.feeds) {
+            const status = state.feedStatus[feed.url];
+            if (!hasActiveSources(feed.url)) {
+                state.feedStatus[feed.url] = { status: "disabled", failedUrls: [] };
+            } else if (status && status.status === "disabled") {
+                delete state.feedStatus[feed.url];
+            }
+        }
+    }
+
+    /**
+     * Sources were switched on/off (feed dialog) or the config was replaced (import/reset).
+     * Feeds that got a source back are treated as stale so it is fetched soon; this does not
+     * start any fetch itself - the caller does (refreshStale).
+     */
+    function onSourcesChanged(changedSources) {
+        const state = Config.getState();
+        const changed = new Set(changedSources || []);
+        syncDisabledStatuses();
+        for (const feed of state.feeds) {
+            if (!hasActiveSources(feed.url)) continue;
+            const gotSourceBack = RSS.parseFeedUrls(feed.url)
+                .some(u => changed.has(u) && !Config.isSourceDisabled(u));
+            if (gotSourceBack) {
+                delete failures[feed.url];
+                forceStale.add(feed.url);
+            }
+        }
+        updateFeedDots();
+        renderActive();
     }
 
     function startAutoRefresh() {
@@ -858,9 +980,11 @@ const UI = (() => {
     function init() {
         Config.load();
         const state = Config.getState();
+        syncDisabledStatuses();
 
         Utils.applyTheme(state.currentTheme);
         Dialogs.initCloseButtons();
+        Dialogs.initSettings();
         renderFeedButtons();
         bindEventListeners();
         updateRefreshButton();
@@ -883,6 +1007,8 @@ const UI = (() => {
         selectFeed,
         clearArticles,
         displayPage,
-        storeFeedResult
+        storeFeedResult,
+        onSourcesChanged,
+        refreshStale: refreshStaleInBackground
     };
 })();

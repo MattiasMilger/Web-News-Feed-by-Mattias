@@ -282,6 +282,12 @@ h1 {
     background-color: #e74c3c;
 }
 
+/* Every source of the feed is switched off: hollow dot */
+.feed-status-dot.status-disabled {
+    background-color: transparent;
+    border: 1.5px solid var(--summary-color);
+}
+
 /* --- Articles Area --- */
 .articles-area {
     min-height: 200px;
@@ -815,6 +821,11 @@ body.dark-mode .message-area.success {
     background-color: var(--select-bg);
 }
 
+.feed-list-status-dot.status-disabled {
+    background-color: transparent;
+    border: 2px solid var(--summary-color);
+}
+
 .feed-list-main {
     display: flex;
     flex-direction: column;
@@ -851,7 +862,8 @@ body.dark-mode .message-area.success {
     color: var(--error-color);
 }
 
-.feed-list-status-text.status-unknown {
+.feed-list-status-text.status-unknown,
+.feed-list-status-text.status-disabled {
     color: var(--summary-color);
 }
 
@@ -873,13 +885,102 @@ body.dark-mode .message-area.success {
 
 .feed-url-row {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
     padding: 6px 8px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background-color: var(--entry-bg);
     width: 100%;
+    text-align: left;
+}
+
+.feed-url-row.is-disabled {
+    border-style: dashed;
+    background-color: color-mix(in srgb, var(--summary-color) 8%, var(--entry-bg));
+}
+
+.feed-url-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.feed-url-head .feed-url-status-text {
+    flex: 1;
+    min-width: 0;
+    white-space: normal;
+}
+
+.feed-url-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.feed-url-action-btn {
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--button-bg);
+    color: var(--fg-color);
+    cursor: pointer;
+    font-size: 0.78em;
+    font-weight: bold;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.feed-url-action-btn:hover:not(:disabled) {
+    background-color: var(--select-bg);
+}
+
+.feed-url-action-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.feed-url-action-btn.is-enable {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.feed-url-action-btn.is-enable:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--accent-color) 80%, black);
+}
+
+.feed-url-row-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.feed-url-test-result {
+    font-size: 0.8em;
+    line-height: 1.4;
+}
+
+.feed-url-test-result:empty {
+    display: none;
+}
+
+.feed-url-test-result.ok {
+    color: var(--success-color);
+}
+
+.feed-url-test-result.error {
+    color: var(--error-color);
+}
+
+.feed-url-test-result.warning {
+    color: var(--warning-color);
+}
+
+.feed-url-test-result.pending {
+    color: var(--summary-color);
+    font-style: italic;
 }
 
 .feed-url-row .feed-list-status-dot {
@@ -916,7 +1017,8 @@ body.dark-mode .message-area.success {
     color: var(--error-color);
 }
 
-.feed-url-status-text.status-unknown {
+.feed-url-status-text.status-unknown,
+.feed-url-status-text.status-disabled {
     color: var(--summary-color);
 }
 
@@ -1082,6 +1184,118 @@ body.dark-mode .message-area.success {
     display: none;
 }
 
+/* --- Settings (inside Manage Feeds) --- */
+.settings-section {
+    margin: 15px 0 10px 0;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-color);
+}
+
+.modal-content .settings-section h3 {
+    margin: 10px 0 10px 0;
+    padding-bottom: 6px;
+}
+
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    background-color: var(--entry-bg);
+    border-radius: 6px;
+    border-left: 4px solid var(--accent-color);
+}
+
+.setting-text {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.setting-label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.setting-hint {
+    margin: 0;
+    font-size: 0.8em;
+    line-height: 1.4;
+    color: var(--summary-color);
+    font-style: italic;
+}
+
+.stepper-control {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.stepper-range {
+    width: 160px;
+    accent-color: var(--accent-color);
+    cursor: pointer;
+}
+
+.stepper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.stepper-button {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--button-bg);
+    color: var(--fg-color);
+    font-size: 1.1em;
+    font-weight: bold;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.stepper-button:hover:not(:disabled) {
+    background-color: var(--select-bg);
+}
+
+.stepper-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* No native up/down spinners: the - and + buttons do that job */
+.stepper-input {
+    width: 54px;
+    height: 30px;
+    padding: 0 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--container-bg);
+    color: var(--fg-color);
+    font-size: 1em;
+    font-weight: bold;
+    text-align: center;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.stepper-unit {
+    font-size: 0.75em;
+    color: var(--summary-color);
+}
+
 /* --- Footer --- */
 footer {
     width: 100%;
@@ -1186,6 +1400,14 @@ footer .footer-portfolio a {
 
     .modal-button-row {
         flex-direction: column;
+    }
+
+    .feed-url-head {
+        flex-wrap: wrap;
+    }
+
+    .stepper-control {
+        width: 100%;
     }
 
     .article-headline-row {

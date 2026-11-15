@@ -341,7 +341,9 @@ const RSS = (() => {
     async function fetchFeedEntries(feedUrl, maxEntries, onPartial, opts) {
         maxEntries = maxEntries || Config.MAX_ENTRIES_PER_FEED;
         const gentle = !!(opts && opts.gentle);
-        const urls = parseFeedUrls(feedUrl);
+        // Sources that are switched off (opts.skip says which) are never fetched.
+        const skip = opts && typeof opts.skip === "function" ? opts.skip : null;
+        const urls = parseFeedUrls(feedUrl).filter(u => !skip || !skip(u));
 
         if (urls.length === 0) {
             throw new Error("No valid URLs to fetch");
@@ -407,6 +409,32 @@ const RSS = (() => {
         return { articles: collected.slice(0, maxEntries), failedUrls };
     }
 
+    /**
+     * Try one source URL right now (the "Test" button). Same two-step attempt as a normal fetch,
+     * but it never throws, reports what it found, and touches no cache or failure counter.
+     */
+    async function testSource(url) {
+        const started = performance.now();
+        const elapsed = () => Math.round(performance.now() - started);
+        try {
+            let articles;
+            try {
+                articles = await fetchSingleFeed(url, { budget: FIRST_PASS_BUDGET });
+            } catch (err) {
+                if (err && err.budgetExceeded) throw err;
+                articles = await fetchSingleFeed(url, {
+                    gentle: true, ignoreCooldown: true, timeout: RETRY_TIMEOUT,
+                    maxProxies: RETRY_MAX_PROXIES, budget: RETRY_BUDGET
+                });
+            }
+            // Only real publication dates count (undated items get "now" when parsed).
+            const latest = articles.reduce((max, a) => a.dateStr ? Math.max(max, a.timestamp) : max, 0);
+            return { ok: true, count: articles.length, latest: latest || null, ms: elapsed() };
+        } catch (err) {
+            return { ok: false, error: (err && err.message) || "Unknown error", ms: elapsed() };
+        }
+    }
+
     function validateFeedUrl(urlString) {
         const urls = parseFeedUrls(urlString);
         if (urls.length === 0) return { valid: false, error: "No URLs provided" };
@@ -431,6 +459,7 @@ const RSS = (() => {
         extractDomain,
         fetchFeedEntries,
         fetchSingleFeed,
+        testSource,
         validateFeedUrl,
         stripHtml
     };

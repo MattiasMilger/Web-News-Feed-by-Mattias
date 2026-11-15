@@ -15,6 +15,8 @@ Open `index.html` in a modern browser. No build tools or dependencies required.
 - **RSS Feed Reading** - Fetch and display articles from any public RSS/Atom feed.
 - **Amalgamated Feeds** - Combine multiple RSS sources into a single category (comma-separated URLs).
 - **Feed Organization** - Arrange feeds into up to 10 rows; each feed has a row (1-10) and an order (1-10) controlling its position within the row. Max 10 feeds per row.
+- **Auto-Disable Failing Sources** - An RSS source (one URL inside a feed) that fails a number of automatic checks in a row is switched off and no longer fetched, so dead sources stop using resources. Set the number under **Settings** in Manage Feeds (default 6, `0` = never disable automatically). Only automatic checks count: the refresh button, being offline, or a general proxy outage (nothing answering at all) never disable anything. A disabled source is locked in Edit Feed until you enable or remove it, and a feed whose sources are all disabled shows a hollow dot.
+- **Test, Disable & Enable Sources** - In Edit Feed each RSS source has a **Test** button (tries it now and reports whether it works and how many articles it returned), a **Disable/Enable** button for turning a source off or on by hand, and a remove button. Disable/Enable is applied when you press Save.
 - **Source Badges** - Every article displays its source domain.
 - **Pagination** - Articles displayed 12 per page, up to 10 pages per feed.
 - **Live Search** - Filter and highlight articles by keyword in real-time.
@@ -60,15 +62,17 @@ Web News Feed by Mattias/
 4. The XML response is parsed client-side using `DOMParser`, supporting both RSS 2.0 and Atom formats.
 5. Articles are sorted by publication date (newest first) and displayed with **pagination** (12 per page, max 10 pages).
 6. The **search box** filters articles in real-time and highlights matching text.
-7. **Feed management** (add, edit, remove) is done through the Manage Feeds dialog. Each feed has a row and an order; editing a feed into an occupied slot swaps the two feeds.
-8. **data config** (accessed via the site footer) allows exporting your setup as a JSON file, importing a previous export, or resetting to defaults (with typed in-app confirmation).
+7. **Source switching**: after each automatic check of a source, a success resets its failure count and a failure adds one; when the count reaches the Settings value the source is disabled and skipped from then on.
+8. **Feed management** (add, edit, remove) is done through the Manage Feeds dialog. Each feed has a row and an order; editing a feed into an occupied slot swaps the two feeds.
+9. **data config** (accessed via the site footer) allows exporting your setup as a JSON file, importing a previous export, or resetting to defaults (with typed in-app confirmation).
 
 ## Technical Notes
 
 - **No external dependencies** - pure vanilla HTML, CSS, and JavaScript.
 - **CORS Proxies** - Multiple proxies are tried with automatic fallback (`corsproxy.io`, `allorigins.win`, `codetabs.com`, and others). The proxy that worked last is tried first, and a slow proxy is raced by the next one after 4 seconds rather than waited on.
 - **Caching** - Completed fetches are kept per feed for 30 minutes (fresh) and up to 24 hours (still shown, and refreshed when stale). A feed switched away from mid-load keeps loading and is cached when it finishes. If a source in an amalgamated feed fails, its previously cached articles are kept. Writes to `localStorage` are batched (and flushed when the page is hidden or closed) so several feeds finishing together do not stall the page.
-- **localStorage** - Configuration (`newsfeed_config`) and the article cache (`newsfeed_cache`) persist in the browser. Clearing browser data will reset feeds to defaults.
+- **Source health** - Consecutive failures per source are counted (at most once per 2 minutes per source, so a source shared by two feeds isn't counted twice for one outage) and kept in `newsfeed_source_health`; a success resets the count. Which sources are disabled, and the auto-disable setting, are part of the config and are included in Export/Import. State is kept per source URL, so the same URL used in two feeds is one source. Disabling a source also removes its saved articles from the feeds. The timing constants are at the top of `config.js`.
+- **localStorage** - Configuration (`newsfeed_config`), the article cache (`newsfeed_cache`) and the source failure counters (`newsfeed_source_health`) persist in the browser. Clearing browser data will reset feeds to defaults.
 
 ## Browser Support
 

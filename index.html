@@ -55,6 +55,24 @@
                 <button id="btn-feed-edit" class="modal-action-button">Edit Selected</button>
                 <button id="btn-feed-remove" class="modal-action-button danger-button">Remove Selected</button>
             </div>
+            <div class="settings-section">
+                <h3>Settings</h3>
+                <div class="setting-row">
+                    <div class="setting-text">
+                        <label for="auto-disable-input" class="setting-label">Auto-disable failing RSS sources after</label>
+                        <p id="auto-disable-hint" class="setting-hint"></p>
+                    </div>
+                    <div class="stepper-control">
+                        <input type="range" id="auto-disable-range" class="stepper-range" min="0" max="20" step="1" value="6" aria-label="Failed checks before a source is disabled">
+                        <div class="stepper">
+                            <button type="button" id="btn-auto-disable-minus" class="stepper-button" aria-label="Decrease">&minus;</button>
+                            <input type="number" id="auto-disable-input" class="stepper-input" min="0" max="20" step="1" value="6" inputmode="numeric">
+                            <button type="button" id="btn-auto-disable-plus" class="stepper-button" aria-label="Increase">+</button>
+                        </div>
+                        <span class="stepper-unit">failed checks (0 = off)</span>
+                    </div>
+                </div>
+            </div>
             <div class="modal-close-center">
                 <button class="modal-close-button centered" data-modal="feed-manager-modal">Close</button>
             </div>
@@ -165,6 +183,8 @@
                         <li><strong>Rows 1-10</strong> - organize feed buttons into horizontal rows.</li>
                         <li><strong>Order 1-10</strong> - controls the position of a feed within its row. Max 10 feeds per row.</li>
                         <li><strong>Swap on conflict</strong> - editing a feed into an occupied row/order slot swaps the two feeds.</li>
+                        <li><strong>Auto-disable failing sources</strong> - an RSS source that fails 6 checks in a row (change it under Settings in Manage Feeds; 0 turns this off) is switched off and no longer fetched. Only automatic checks count - the refresh button, being offline, or a general proxy outage never disable anything.</li>
+                        <li><strong>Test, Disable &amp; Enable</strong> - in Edit Feed every RSS source has a Test button, a Disable/Enable button and a remove button. A disabled source is locked until you enable or remove it. Disable/Enable is applied when you press Save.</li>
                     </ul>
                 </div>
                 <div class="info-section">

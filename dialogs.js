@@ -56,10 +56,14 @@ const Dialogs = (() => {
             selectedFeedIndex = activeIdx >= 0 ? activeIdx : null;
         }
         refreshFeedListbox();
+        syncAutoDisableControls();
         openModal("feed-manager-modal");
     }
 
     function getFeedStatusInfo(feed, state) {
+        if (Config.activeSources(feed.url).length === 0) {
+            return { cls: "disabled", label: "Disabled - all sources are off" };
+        }
         const status = state.feedStatus[feed.url];
         if (!status) {
             return { cls: "unknown", label: "Not checked yet" };
@@ -76,7 +80,7 @@ const Dialogs = (() => {
     }
 
     function getUrlStatusInfo(url, aggregateStatus) {
-        if (!aggregateStatus) {
+        if (!aggregateStatus || aggregateStatus.status === "disabled") {
             return { cls: "unknown", label: "Unchecked", title: "Not checked yet" };
         }
         if (aggregateStatus.failedUrls.includes(url)) {
@@ -85,18 +89,148 @@ const Dialogs = (() => {
         return { cls: "ok", label: "Up", title: "Responding" };
     }
 
-    function createUrlRowElement(url, statusInfo) {
+    function describeDisabledSource(info) {
+        if (info && info.reason === "auto") {
+            return info.fails > 0 ? `Auto-disabled - failed ${info.fails} checks` : "Auto-disabled";
+        }
+        return "Disabled - turned off manually";
+    }
+
+    // ========================
+    // Source rows (Add/Edit feed modal)
+    // Each row is one RSS source. Disable/Enable is staged on the row and applied on Save;
+    // a disabled row is locked (its URL can't be edited) until it is enabled or removed.
+    // ========================
+
+    function applyRowState(row) {
+        const reason = row.dataset.disabled;
+        const info = reason
+            ? { cls: "disabled", label: describeDisabledSource(row._disabledInfo || { reason }) }
+            : row._enabledStatus;
+
+        const dot = row.querySelector(".feed-list-status-dot");
+        const label = row.querySelector(".feed-url-status-text");
+        dot.className = `feed-list-status-dot status-${info.cls}`;
+        label.className = `feed-url-status-text status-${info.cls}`;
+        label.textContent = info.label;
+
+        row.classList.toggle("is-disabled", !!reason);
+        row.querySelector(".feed-url-row-input").disabled = !!reason;
+
+        const toggle = row.querySelector(".feed-url-toggle-btn");
+        toggle.textContent = reason ? "Enable" : "Disable";
+        toggle.classList.toggle("is-enable", !!reason);
+        toggle.title = reason
+            ? "Turn this source back on (applied when you save)"
+            : "Stop fetching this source (applied when you save)";
+    }
+
+    function explainTestError(message) {
+        if (/invalid xml/i.test(message)) return "it answers, but not with a valid RSS/Atom feed.";
+        if (/gave up|timed out/i.test(message)) return "no answer in time.";
+        return "it could not be fetched through any proxy.";
+    }
+
+    async function testRow(row) {
+        const btn = row.querySelector(".feed-url-test-btn");
+        const out = row.querySelector(".feed-url-test-result");
+        const url = row.querySelector(".feed-url-row-input").value.trim();
+        const show = (cls, text, title) => {
+            out.className = `feed-url-test-result ${cls}`;
+            out.textContent = text;
+            out.title = title || "";
+        };
+
+        if (!url) {
+            show("error", "Enter a URL to test.");
+            return;
+        }
+        const validation = RSS.validateFeedUrl(url);
+        if (!validation.valid) {
+            show("error", validation.error);
+            return;
+        }
+        if (RSS.parseFeedUrls(url).length > 1) {
+            show("error", "Use one URL per row.");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = "Testing...";
+        show("pending", "Testing - this can take up to 15 seconds...");
+
+        const res = await RSS.testSource(url);
+
+        btn.disabled = false;
+        btn.textContent = "Test";
+        if (!row.isConnected) return; // the dialog was rebuilt meanwhile
+
+        const wasDisabled = !!row.dataset.disabled;
+        if (res.ok) {
+            if (res.count === 0) {
+                show("warning", "Reachable, but it contains no articles.");
+            } else {
+                const newest = res.latest ? `, newest ${Utils.formatDate(res.latest)}` : "";
+                const hint = wasDisabled ? " Click Enable to turn it back on." : "";
+                show("ok", `Works - ${res.count} article${res.count === 1 ? "" : "s"}${newest}.${hint}`);
+            }
+            row._enabledStatus = { cls: "ok", label: "Up - test passed" };
+        } else {
+            show("error", `Not working - ${explainTestError(res.error)}`, res.error);
+            row._enabledStatus = { cls: "error", label: "Down - test failed" };
+        }
+        applyRowState(row);
+    }
+
+    function createUrlRowElement(url, statusInfo, disabledInfo) {
         const row = document.createElement("div");
         row.className = "feed-url-row";
+        row.dataset.initialDisabled = disabledInfo ? disabledInfo.reason : "";
+        row.dataset.disabled = row.dataset.initialDisabled;
+        row._disabledInfo = disabledInfo || null;
+        row._enabledStatus = disabledInfo ? { cls: "unknown", label: "Enabled - not checked yet" } : statusInfo;
+
+        const head = document.createElement("div");
+        head.className = "feed-url-head";
 
         const dot = document.createElement("span");
-        dot.className = `feed-list-status-dot status-${statusInfo.cls}`;
-        row.appendChild(dot);
+        dot.className = "feed-list-status-dot";
+        head.appendChild(dot);
 
         const label = document.createElement("span");
-        label.className = `feed-url-status-text status-${statusInfo.cls}`;
-        label.textContent = statusInfo.label;
-        row.appendChild(label);
+        label.className = "feed-url-status-text";
+        head.appendChild(label);
+
+        const actions = document.createElement("div");
+        actions.className = "feed-url-actions";
+
+        const testBtn = document.createElement("button");
+        testBtn.type = "button";
+        testBtn.className = "feed-url-action-btn feed-url-test-btn";
+        testBtn.textContent = "Test";
+        testBtn.title = "Try this RSS source now";
+        testBtn.addEventListener("click", () => testRow(row));
+        actions.appendChild(testBtn);
+
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        toggleBtn.className = "feed-url-action-btn feed-url-toggle-btn";
+        toggleBtn.addEventListener("click", () => {
+            row.dataset.disabled = row.dataset.disabled ? "" : (row.dataset.initialDisabled || "manual");
+            applyRowState(row);
+        });
+        actions.appendChild(toggleBtn);
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "feed-url-remove-btn";
+        removeBtn.textContent = "\u2715";
+        removeBtn.title = "Remove this URL";
+        removeBtn.addEventListener("click", () => row.remove());
+        actions.appendChild(removeBtn);
+
+        head.appendChild(actions);
+        row.appendChild(head);
 
         const input = document.createElement("input");
         input.type = "text";
@@ -105,20 +239,18 @@ const Dialogs = (() => {
         input.value = url;
         row.appendChild(input);
 
-        const removeBtn = document.createElement("button");
-        removeBtn.type = "button";
-        removeBtn.className = "feed-url-remove-btn";
-        removeBtn.textContent = "\u2715";
-        removeBtn.title = "Remove this URL";
-        removeBtn.addEventListener("click", () => row.remove());
-        row.appendChild(removeBtn);
+        const result = document.createElement("div");
+        result.className = "feed-url-test-result";
+        result.setAttribute("role", "status");
+        row.appendChild(result);
 
+        applyRowState(row);
         return row;
     }
 
     function addUrlRow(url) {
         const list = document.getElementById("feed-url-list");
-        const row = createUrlRowElement(url || "", { cls: "unknown", label: "New", title: "Not checked yet" });
+        const row = createUrlRowElement(url || "", { cls: "unknown", label: "New", title: "Not checked yet" }, null);
         list.appendChild(row);
         if (!url) {
             row.querySelector(".feed-url-row-input").focus();
@@ -134,14 +266,94 @@ const Dialogs = (() => {
         }
         urls.forEach(u => {
             const statusInfo = getUrlStatusInfo(u, aggregateStatus);
-            list.appendChild(createUrlRowElement(u, statusInfo));
+            list.appendChild(createUrlRowElement(u, statusInfo, Config.getDisabledInfo(u)));
         });
     }
 
-    function collectUrlRowValues() {
-        return Array.from(document.querySelectorAll("#feed-url-list .feed-url-row-input"))
-            .map(input => input.value.trim())
-            .filter(v => v.length > 0);
+    function collectUrlRows() {
+        return Array.from(document.querySelectorAll("#feed-url-list .feed-url-row"))
+            .map(row => ({
+                url: row.querySelector(".feed-url-row-input").value.trim(),
+                disabled: row.dataset.disabled || "",
+                initialDisabled: row.dataset.initialDisabled || ""
+            }))
+            .filter(r => r.url.length > 0);
+    }
+
+    /** Apply only what the user changed in the dialog. Returns the URLs whose on/off state changed. */
+    function applySourceStates(rows) {
+        const changed = [];
+        rows.forEach(r => {
+            if (r.disabled === r.initialDisabled) return;
+            if (r.disabled) {
+                Config.disableSource(r.url, r.disabled);
+            } else {
+                Config.enableSource(r.url);
+            }
+            changed.push(r.url);
+        });
+        return changed;
+    }
+
+    // ========================
+    // Settings (inside Manage Feeds)
+    // ========================
+
+    function describeAutoDisable(n) {
+        return n > 0
+            ? `A source is switched off automatically after it fails ${n} check${n === 1 ? "" : "s"} in a row. ` +
+              "It is not fetched again until you enable it in Edit Selected."
+            : "Off - failing sources are never switched off automatically (they keep being retried with growing waits).";
+    }
+
+    function syncAutoDisableControls() {
+        const range = document.getElementById("auto-disable-range");
+        const input = document.getElementById("auto-disable-input");
+        const hint = document.getElementById("auto-disable-hint");
+        const minus = document.getElementById("btn-auto-disable-minus");
+        const plus = document.getElementById("btn-auto-disable-plus");
+        if (!range || !input) return;
+
+        const n = Config.getAutoDisableAfter();
+        range.value = n;
+        if (document.activeElement !== input) input.value = n; // don't rewrite the field while typing
+        if (hint) hint.textContent = describeAutoDisable(n);
+        if (minus) minus.disabled = n <= 0;
+        if (plus) plus.disabled = n >= Config.MAX_AUTO_DISABLE_AFTER;
+    }
+
+    function setAutoDisable(value) {
+        Config.setAutoDisableAfter(value);
+        syncAutoDisableControls();
+    }
+
+    function initSettings() {
+        const range = document.getElementById("auto-disable-range");
+        const input = document.getElementById("auto-disable-input");
+        if (!range || !input) return;
+
+        range.min = input.min = 0;
+        range.max = input.max = Config.MAX_AUTO_DISABLE_AFTER;
+
+        range.addEventListener("input", () => setAutoDisable(range.value));
+
+        input.addEventListener("input", () => {
+            const n = parseInt(input.value, 10);
+            if (!isNaN(n)) setAutoDisable(n);
+        });
+        input.addEventListener("change", () => {
+            const n = parseInt(input.value, 10);
+            if (!isNaN(n)) setAutoDisable(n);
+            input.value = Config.getAutoDisableAfter(); // snap back to the real value (also fixes empty/too big)
+            syncAutoDisableControls();
+        });
+
+        const minus = document.getElementById("btn-auto-disable-minus");
+        const plus = document.getElementById("btn-auto-disable-plus");
+        if (minus) minus.addEventListener("click", () => setAutoDisable(Config.getAutoDisableAfter() - 1));
+        if (plus) plus.addEventListener("click", () => setAutoDisable(Config.getAutoDisableAfter() + 1));
+
+        syncAutoDisableControls();
     }
 
     function refreshFeedListbox() {
@@ -163,8 +375,12 @@ const Dialogs = (() => {
 
         sortedIndices.forEach(i => {
             const feed = state.feeds[i];
-            const urlCount = RSS.parseFeedUrls(feed.url).length;
-            const amalgamIndicator = urlCount > 1 ? ` · ${urlCount} sources` : "";
+            const feedUrls = RSS.parseFeedUrls(feed.url);
+            const urlCount = feedUrls.length;
+            const disabledCount = feedUrls.filter(Config.isSourceDisabled).length;
+            const amalgamIndicator =
+                (urlCount > 1 ? ` · ${urlCount} sources` : "") +
+                (disabledCount > 0 && disabledCount < urlCount ? ` · ${disabledCount} disabled` : "");
             const statusInfo = getFeedStatusInfo(feed, state);
 
             const row = document.createElement("div");
@@ -269,8 +485,10 @@ const Dialogs = (() => {
 
     async function saveFeed() {
         const name = document.getElementById("feed-name-input").value.trim();
-        const urlList = collectUrlRowValues();
+        const urlRows = collectUrlRows();
+        const urlList = urlRows.map(r => r.url);
         const url = urlList.join(", ");
+        const activeList = urlRows.filter(r => !r.disabled).map(r => r.url);
         const row = parseInt(document.getElementById("feed-row-input").value, 10);
         const order = parseInt(document.getElementById("feed-order-input").value, 10);
 
@@ -294,14 +512,16 @@ const Dialogs = (() => {
         saveBtn.textContent = "Validating...";
         let validated = null;
         try {
-            validated = await RSS.fetchFeedEntries(url);
-            const { failedUrls } = validated;
-            if (failedUrls.length > 0) {
-                const total = RSS.parseFeedUrls(url).length;
-                Utils.showMessage(
-                    `${failedUrls.length} of ${total} source(s) failed to load - saving with working sources.`,
-                    "warning", 6000
-                );
+            // Disabled sources are never fetched; a feed with every source disabled can still be saved.
+            if (activeList.length > 0) {
+                validated = await RSS.fetchFeedEntries(activeList.join(", "));
+                const { failedUrls } = validated;
+                if (failedUrls.length > 0) {
+                    Utils.showMessage(
+                        `${failedUrls.length} of ${activeList.length} source(s) failed to load - saving with working sources.`,
+                        "warning", 6000
+                    );
+                }
             }
         } catch (err) {
             Utils.showMessage(`Feed validation failed: ${err.message}`, "error", 8000);
@@ -362,6 +582,10 @@ const Dialogs = (() => {
             Utils.showMessage(msg, "success");
         }
 
+        const changedSources = applySourceStates(urlRows);
+        Config.pruneSourceState(); // forget on/off state of URLs that no feed uses any more
+        UI.onSourcesChanged(changedSources);
+
         if (validated) UI.storeFeedResult(url, validated.articles, validated.failedUrls);
 
         Config.save();
@@ -374,6 +598,7 @@ const Dialogs = (() => {
         } else if (state.activeFeedUrl === url) {
             UI.selectFeed(url, name);
         }
+        UI.refreshStale(); // fetch feeds that just got a source back
     }
 
     function removeFeed() {
@@ -392,6 +617,7 @@ const Dialogs = (() => {
 
         Config.dropCache(removedFeed.url);
         state.feeds.splice(idx, 1);
+        Config.pruneSourceState();
         selectedFeedIndex = null;
         Config.save();
 
@@ -462,6 +688,7 @@ const Dialogs = (() => {
                 if (result === true) {
                     selectedFeedIndex = null;
                     Utils.applyTheme(Config.getState().currentTheme);
+                    UI.onSourcesChanged([]);
                     UI.renderFeedButtons();
                     UI.clearArticles();
                     document.getElementById("search-input").value = "";
@@ -510,6 +737,7 @@ const Dialogs = (() => {
         selectedFeedIndex = null;
 
         Utils.applyTheme(Config.getState().currentTheme);
+        UI.onSourcesChanged([]);
         UI.renderFeedButtons();
         UI.clearArticles();
         document.getElementById("search-input").value = "";
@@ -536,6 +764,7 @@ const Dialogs = (() => {
         saveFeed,
         removeFeed,
         addUrlRow,
+        initSettings,
         openConfigManager,
         exportConfig,
         openImportConfigModal,
