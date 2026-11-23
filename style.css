@@ -1208,6 +1208,42 @@ body.dark-mode .message-area.success {
     border-left: 4px solid var(--accent-color);
 }
 
+.setting-row + .setting-row {
+    margin-top: 10px;
+}
+
+.proxy-status-list {
+    list-style: none;
+    margin: 8px 0 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.85em;
+}
+
+.proxy-status-item {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+}
+
+.proxy-status-item .feed-list-status-dot {
+    align-self: center;
+    margin-top: 0;
+}
+
+.proxy-status-name {
+    font-weight: bold;
+}
+
+.proxy-status-info {
+    color: var(--summary-color);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .setting-text {
     flex: 1 1 220px;
     min-width: 0;

@@ -57,6 +57,7 @@ const Dialogs = (() => {
         }
         refreshFeedListbox();
         syncAutoDisableControls();
+        renderProxyStatus();
         openModal("feed-manager-modal");
     }
 
@@ -126,6 +127,8 @@ const Dialogs = (() => {
     }
 
     function explainTestError(message) {
+        if (/web page, not a feed/i.test(message)) return message.replace(/^This is/, "this is");
+        if (/^Feed error:/i.test(message)) return message.replace(/^Feed error:\s*/i, "") ;
         if (/invalid xml/i.test(message)) return "it answers, but not with a valid RSS/Atom feed.";
         if (/gave up|timed out/i.test(message)) return "no answer in time.";
         return "it could not be fetched through any proxy.";
@@ -172,7 +175,9 @@ const Dialogs = (() => {
             } else {
                 const newest = res.latest ? `, newest ${Utils.formatDate(res.latest)}` : "";
                 const hint = wasDisabled ? " Click Enable to turn it back on." : "";
-                show("ok", `Works - ${res.count} article${res.count === 1 ? "" : "s"}${newest}.${hint}`);
+                const via = res.limited ? ` (via ${res.via}, which only returns the newest ${res.count})` : "";
+                show("ok", `Works - ${res.count} article${res.count === 1 ? "" : "s"}${newest}${via}.${hint}`,
+                    res.via ? `Fetched through ${res.via} in ${(res.ms / 1000).toFixed(1)}s` : "");
             }
             row._enabledStatus = { cls: "ok", label: "Up - test passed" };
         } else {
@@ -322,12 +327,79 @@ const Dialogs = (() => {
         if (plus) plus.disabled = n >= Config.MAX_AUTO_DISABLE_AFTER;
     }
 
+    function describeAgo(ts) {
+        const min = Math.round((Date.now() - ts) / 60000);
+        if (min < 1) return "just now";
+        if (min < 60) return `${min} min ago`;
+        const h = Math.round(min / 60);
+        return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+    }
+
+    /** Settings panel: how each CORS proxy has been doing lately. */
+    function renderProxyStatus() {
+        const list = document.getElementById("proxy-status-list");
+        if (!list) return;
+        list.innerHTML = "";
+
+        const statuses = RSS.getProxyStatus();
+        for (const p of statuses) {
+            const li = document.createElement("li");
+            li.className = "proxy-status-item";
+
+            const dot = document.createElement("span");
+            const cls = { ok: "ok", failing: "partial", resting: "error", unknown: "unknown" }[p.state];
+            dot.className = `feed-list-status-dot status-${cls}`;
+            li.appendChild(dot);
+
+            const name = document.createElement("span");
+            name.className = "proxy-status-name";
+            name.textContent = p.name + (p.limited ? " (newest 10 only)" : "");
+            li.appendChild(name);
+
+            const info = document.createElement("span");
+            info.className = "proxy-status-info";
+            if (p.state === "ok") {
+                info.textContent = `Working${p.avgMs != null ? ` - about ${(p.avgMs / 1000).toFixed(1)}s` : ""}`;
+            } else if (p.state === "resting") {
+                const mins = Math.max(1, Math.round((p.restingUntil - Date.now()) / 60000));
+                info.textContent = `Skipped for ${mins < 120 ? `${mins} min` : `${Math.round(mins / 60)} h`} - ${p.lastError}`;
+            } else if (p.state === "failing") {
+                info.textContent = `Failing - ${p.lastError}`;
+            } else {
+                info.textContent = "Not used yet";
+            }
+            if (p.lastOk && p.state !== "ok") info.textContent += ` (last worked ${describeAgo(p.lastOk)})`;
+            li.appendChild(info);
+
+            list.appendChild(li);
+        }
+
+        const working = statuses.filter(p => p.state === "ok").length;
+        const hint = document.getElementById("proxy-status-hint");
+        if (hint) {
+            hint.textContent = working > 0
+                ? `${working} of ${statuses.length} working. Feeds are fetched through these free services; ` +
+                  "the fastest working one is used first and ones that keep failing are skipped for a while."
+                : "Feeds are fetched through these free services; the fastest working one is used first " +
+                  "and ones that keep failing are skipped for a while.";
+        }
+    }
+
     function setAutoDisable(value) {
         Config.setAutoDisableAfter(value);
         syncAutoDisableControls();
     }
 
     function initSettings() {
+        const resetBtn = document.getElementById("btn-proxy-reset");
+        if (resetBtn) {
+            resetBtn.addEventListener("click", () => {
+                RSS.resetProxyHealth();
+                renderProxyStatus();
+                Utils.showMessage("All proxies will be tried again on the next fetch.", "info", 3000);
+            });
+        }
+
         const range = document.getElementById("auto-disable-range");
         const input = document.getElementById("auto-disable-input");
         if (!range || !input) return;

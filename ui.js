@@ -226,10 +226,18 @@ const UI = (() => {
             .sort((a, b) => (a.row || 1) - (b.row || 1) || (a.order || 1) - (b.order || 1));
     }
 
+    /**
+     * Keep cached articles that the new fetch couldn't provide: everything from sources that failed,
+     * and the older items from sources that only answered with their newest few (a limited proxy).
+     */
     function keepFailedSources(feedUrl, result) {
-        if (result.failedUrls.length === 0) return result.articles;
+        const failed = result.failedUrls || [];
+        const limited = result.limitedUrls || [];
+        if (failed.length === 0 && limited.length === 0) return result.articles;
         const old = Config.getState().allArticles[feedUrl] || [];
-        const kept = old.filter(a => result.failedUrls.includes(a.sourceUrl));
+        const fresh = new Set(result.articles.map(RSS.articleKey));
+        const kept = old.filter(a =>
+            (failed.includes(a.sourceUrl) || limited.includes(a.sourceUrl)) && !fresh.has(RSS.articleKey(a)));
         if (kept.length === 0) return result.articles;
         return result.articles.concat(kept)
             .sort((a, b) => b.timestamp - a.timestamp)
