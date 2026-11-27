@@ -24,9 +24,11 @@ const Config = (() => {
     // A failed check only counts toward auto-disabling a source once per this long, so a source
     // shared by several feeds (or quick back-to-back retries) is not counted twice for one outage.
     const SOURCE_CHECK_MIN_GAP_MS = 2 * MINUTE;
-    // A source failure only counts if some source worked within this time. If NOTHING works, the
-    // proxies or the connection are the problem - not the sources - so nothing gets disabled.
-    const PROXY_DOWN_GRACE_MS = 10 * MINUTE;
+    // A source failure only counts if some other source worked within this time of it (before or
+    // after). If NOTHING works, the proxies or the connection are the problem - not the sources -
+    // so nothing gets disabled. Healthy feeds are only refetched every CACHE_TTL_MS (checked every
+    // REFRESH_INTERVAL_MS), so the window must cover that gap or most failures would be ignored.
+    const PROXY_DOWN_GRACE_MS = CACHE_TTL_MS + REFRESH_INTERVAL_MS;
     // ==========================================================
 
     // Application constants
@@ -482,33 +484,20 @@ const Config = (() => {
         saveSourceHealth();
     }
 
-    /**
-     * Report the outcome of one check of one source. A success resets its failure streak.
-     * A failure adds to the streak (when `countFailure` is true) and, once the streak reaches the
-     * setting, switches the source off. Returns true if this call just auto-disabled the source.
-     */
-    function recordSourceCheck(url, ok, countFailure) {
+    // Failures seen while nothing had worked lately (e.g. right after page load, before any source
+    // answered). They count only if some source succeeds soon after - proving the proxies work.
+    const pendingFailures = new Map(); // url -> time of the failure
+
+    /** Add one failed check to a source's streak. Returns true if that switched the source off. */
+    function countSourceFailure(url, at) {
         if (state.disabledSources[url]) return false;
-        const now = Date.now();
-
-        if (ok) {
-            lastAnySuccessAt = now;
-            if (state.sourceFailures[url]) {
-                delete state.sourceFailures[url];
-                saveSourceHealth();
-            }
-            return false;
-        }
-
         const limit = state.autoDisableAfter;
-        if (!countFailure || limit <= 0) return false;
-        // Nothing has worked for a while: blame the proxies or the connection, not the source.
-        if (now - lastAnySuccessAt > PROXY_DOWN_GRACE_MS) return false;
+        if (limit <= 0) return false;
 
         const entry = state.sourceFailures[url] || { count: 0, checkedAt: 0 };
-        if (now - entry.checkedAt < SOURCE_CHECK_MIN_GAP_MS) return false; // same outage, already counted
+        if (at - entry.checkedAt < SOURCE_CHECK_MIN_GAP_MS) return false; // same outage, already counted
         entry.count++;
-        entry.checkedAt = now;
+        entry.checkedAt = at;
         state.sourceFailures[url] = entry;
         saveSourceHealth();
 
@@ -517,6 +506,46 @@ const Config = (() => {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Report the outcome of one check of one source. A success resets its failure streak.
+     * A failure adds to the streak (when `countFailure` is true) and, once the streak reaches the
+     * setting, switches the source off. Returns the sources this call just auto-disabled (a
+     * success can also confirm earlier pending failures of other sources).
+     */
+    function recordSourceCheck(url, ok, countFailure) {
+        if (state.disabledSources[url]) return [];
+        const now = Date.now();
+        const disabled = [];
+
+        if (ok) {
+            lastAnySuccessAt = now;
+            pendingFailures.delete(url);
+            if (state.sourceFailures[url]) {
+                delete state.sourceFailures[url];
+                saveSourceHealth();
+            }
+            // Something works, so the failures waiting for proof were the sources' fault after all.
+            for (const [pendingUrl, at] of pendingFailures) {
+                pendingFailures.delete(pendingUrl);
+                if (now - at <= PROXY_DOWN_GRACE_MS && countSourceFailure(pendingUrl, at)) {
+                    disabled.push(pendingUrl);
+                }
+            }
+            return disabled;
+        }
+
+        if (!countFailure || state.autoDisableAfter <= 0) return disabled;
+        // Nothing has worked for a while: maybe the proxies or the connection are down, not the
+        // source. Hold the failure until something succeeds (or forget it if nothing does).
+        if (now - lastAnySuccessAt > PROXY_DOWN_GRACE_MS) {
+            pendingFailures.set(url, now);
+            return disabled;
+        }
+
+        if (countSourceFailure(url, now)) disabled.push(url);
+        return disabled;
     }
 
     /**

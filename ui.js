@@ -351,7 +351,7 @@ const UI = (() => {
 
         const worker = async () => {
             while (queue.length > 0) {
-                if (document.hidden || isOffline()) return;
+                if (isOffline()) return;
                 const feed = queue.shift();
                 if (!needsRefresh(feed.url)) continue;
                 try {
@@ -822,7 +822,7 @@ const UI = (() => {
     /** Report one source check. Failures offline or from the refresh button never count. */
     function noteSourceCheck(sourceUrl, ok, countFailures) {
         const counts = countFailures && !isOffline();
-        if (Config.recordSourceCheck(sourceUrl, ok, counts)) handleAutoDisabled(sourceUrl);
+        Config.recordSourceCheck(sourceUrl, ok, counts).forEach(handleAutoDisabled);
     }
 
     function refreshManagerIfOpen() {
@@ -902,9 +902,13 @@ const UI = (() => {
         refreshTimerId = setInterval(refreshStaleInBackground, Config.REFRESH_INTERVAL_MS);
     }
 
-    /** Timer / tab-return / back-online check: refreshes only feeds that are stale and not waiting to retry. */
+    /**
+     * Timer / tab-return / back-online check: refreshes only feeds that are stale and not waiting to retry.
+     * Runs while the tab is hidden too (background tab, minimized, locked screen), so feeds stay current
+     * and failing sources still get counted toward auto-disable when the app is left running.
+     */
     function refreshStaleInBackground() {
-        if (document.hidden || refreshingAll) return;
+        if (refreshingAll) return;
         const url = Config.getState().activeFeedUrl;
         if (url && !isFeedLoading(url) && needsRefresh(url)) {
             refreshFeed(url, false);
